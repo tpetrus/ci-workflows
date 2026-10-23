@@ -1,0 +1,42 @@
+name: Setup
+description: Checks out the caller's repository, sets up Node from .nvmrc, checks the lockfile, and runs npm ci.
+
+inputs:
+  fetch-depth:
+    description: Number of commits to fetch (passed through to actions/checkout).
+    required: false
+    default: '1'
+  ref:
+    description: Git ref to check out (passed through to actions/checkout). Empty uses actions/checkout's default.
+    required: false
+    default: ''
+  npm-ci-args:
+    description: Extra arguments appended to npm ci, e.g. --ignore-scripts.
+    required: false
+    default: ''
+  lockfile-path:
+    description: Path to the lockfile to check.
+    required: false
+    default: package-lock.json
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        fetch-depth: ${{ inputs['fetch-depth'] }}
+        ref: ${{ inputs.ref }}
+
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+
+    # check-lockfile.ts lives at this action's own repo root (scripts/check-lockfile.ts), not in the caller's
+    # checkout, so it must be run from github.action_path rather than a path relative to the caller's working
+    # directory. This action lives at actions/setup/, so ../.. reaches that repo root.
+    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "${{ inputs['lockfile-path'] }}"
+      shell: bash
+
+    - run: npm ci ${{ inputs['npm-ci-args'] }}
+      shell: bash

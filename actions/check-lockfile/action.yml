@@ -1,0 +1,24 @@
+name: Check lockfile
+description: Fails if the lockfile is missing bundled dependency entries that npm on Windows drops.
+
+inputs:
+  lockfile-path:
+    description: Path to the lockfile to check.
+    required: false
+    default: package-lock.json
+
+runs:
+  using: composite
+  steps:
+    # Needed even though a caller may have already set up Node elsewhere: check-lockfile.ts is run directly as a
+    # .ts file (no build step), which requires Node 24's built-in type stripping, and this action must work
+    # standalone for a caller that only wants the lockfile check.
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version-file: .nvmrc
+
+    # check-lockfile.ts lives at this action's own repo root (scripts/check-lockfile.ts), not in the caller's
+    # checkout, so it must be run from github.action_path rather than a path relative to the caller's working
+    # directory. This action lives at actions/check-lockfile/, so ../.. reaches that repo root.
+    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "${{ inputs['lockfile-path'] }}"
+      shell: bash

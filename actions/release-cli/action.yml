@@ -1,0 +1,63 @@
+name: Release CLI
+description: Runs one scripts/release/cli.ts subcommand from this repo against the caller's checkout.
+
+inputs:
+  command:
+    description: >
+      The release CLI subcommand to run, e.g. check-title, expected-version, check-shipped, write-version, notes,
+      resolve-conflicts.
+    required: true
+  args:
+    description: >
+      Arguments for the subcommand, one per line — use a YAML block scalar, e.g. `args: |` then indented lines.
+      A PR title or any other untrusted text belongs here, never written inline into a workflow's run: step
+      elsewhere.
+    required: false
+    default: ''
+
+outputs:
+  stdout:
+    description: The command's stdout.
+    value: ${{ steps.run.outputs.stdout }}
+
+runs:
+  using: composite
+  steps:
+    # Installs just this repo's own dependency (semver, used by nextVersion.ts) into this action's own checkout, so
+    # the caller never needs this repo's node_modules. This action lives at actions/release-cli/, so ../.. reaches
+    # that repo root.
+    - working-directory: ${{ github.action_path }}/../..
+      run: npm ci --omit=dev --ignore-scripts
+      shell: bash
+
+    - id: run
+      env:
+        CLI_COMMAND: ${{ inputs.command }}
+        CLI_ARGS: ${{ inputs.args }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        mapfile -t arg_array <<< "$CLI_ARGS"
+        # mapfile adds a trailing empty element when $CLI_ARGS ends in a newline (the normal case for a YAML block
+        # scalar), and a single empty element when $CLI_ARGS is empty (zero args); both are bogus and must be
+        # dropped so an empty-string argument is never passed to the CLI.
+        if [ ${#arg_array[@]} -gt 0 ] && [ -z "${arg_array[-1]}" ]; then
+          unset 'arg_array[-1]'
+        fi
+
+        stdout_file="$RUNNER_TEMP/release-cli-stdout.txt"
+        set +e
+        node "$ACTION_PATH/../../scripts/release/cli.ts" "$CLI_COMMAND" "${arg_array[@]}" >"$stdout_file"
+        exit_code=$?
+        set -e
+
+        # Randomized delimiter so the command's own stdout can never prematurely close the heredoc written to
+        # GITHUB_OUTPUT (GitHub's documented recipe for multiline step outputs).
+        delimiter="EOF_$$"
+        {
+          echo "stdout<<$delimiter"
+          cat "$stdout_file"
+          echo "$delimiter"
+        } >>"$GITHUB_OUTPUT"
+
+        exit $exit_code
+      shell: bash
