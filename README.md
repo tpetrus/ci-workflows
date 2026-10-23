@@ -35,7 +35,9 @@ The TypeScript sources in `scripts/` are run in two different ways:
 - **Directly as `.ts`**, by the composite actions, `npm run check-lockfile` / `npm run release` and the specs. Node 24
   strips the types itself, so none of these needs a build.
 - **As built JavaScript**, by the `ci-tools` bin, for example
-  `npx --yes github:tpetrus/ci-workflows#v1 ci-tools check-lockfile`. npx installs the package under a
+  `npx --yes github:tpetrus/ci-workflows#v1 check-lockfile`. The package has a single bin, so npx runs it
+  directly and the sub-tool follows the package spec (repeating `ci-tools` there is passed through as an unknown
+  sub-tool and prints usage; `npx --package=github:tpetrus/ci-workflows#v1 ci-tools ...` is the explicit form). npx installs the package under a
   `node_modules` directory, and Node refuses to strip types from `.ts` files there
   (see [Type stripping in dependencies](https://nodejs.org/api/typescript.html#type-stripping-in-dependencies)),
   so the bin points at `dist/bin.js`, emitted by `npm run build` (`tsc -p tsconfig.build.json`). `dist/` is not
