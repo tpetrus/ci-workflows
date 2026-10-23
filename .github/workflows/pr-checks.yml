@@ -1,0 +1,193 @@
+name: PR checks
+
+# Reusable workflow: the caller declares its own `concurrency:` block (e.g. grouped by PR number); this file does not,
+# since a reusable workflow's concurrency is the caller's call.
+#
+# Two required checks on every pull request, ported from AudioVisualizer-React's pr-checks.yml (see "Versioning and
+# releases" in its AGENTS.md):
+#   pr-title  the title is a Conventional Commit, because the title decides the version bump and the release notes.
+#   version   package.json and package-lock.json carry the version that title calls for, and docs/ci/test titles do not
+#             change anything that ships.
+# Both only read the repository. A version-bump workflow built on version-bump.yml normally makes `version` pass by
+# itself.
+on:
+  workflow_call:
+    inputs:
+      shipped-prefixes:
+        description: Newline-separated path prefixes that always count as "shipped" code (e.g. "src/" and "public/" each on their own line). At least one of shipped-prefixes/shipped-files must be non-empty.
+        type: string
+        default: ''
+      shipped-files:
+        description: Newline-separated exact file paths that count as "shipped" (e.g. "astro.config.mjs").
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # check-title only validates the title text; it never reads the repository, so there is nothing to check out.
+
+      # The title is captured through the environment, never interpolated directly into a run: script or into
+      # release-cli's `args:`, because GitHub substitutes ${{ }} into text before anything runs: an attacker-controlled
+      # title containing backticks, `$()`, `;` or quotes could otherwise inject commands or YAML. Routing it through a
+      # step output makes the later `args:` reference GitHub's own opaque output value instead of raw event text. The
+      # delimiter is randomized so a title cannot smuggle a line that terminates the heredoc early.
+      - name: Capture the PR title safely
+        id: title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          delim="title_$(date +%s%N)_$RANDOM"
+          {
+            echo "value<<$delim"
+            echo "$PR_TITLE"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tpetrus/ci-workflows/actions/release-cli@main
+        with:
+          command: check-title
+          args: |
+            ${{ steps.title.outputs.value }}
+
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Full history, because the base and head are compared with `git diff base...head`.
+      - uses: tpetrus/ci-workflows/actions/setup@main
+        with:
+          fetch-depth: '0'
+          npm-ci-args: --ignore-scripts
+
+      # See the comment on the pr-title job above: the title is captured via the environment and a step output, never
+      # interpolated directly, before it reaches release-cli's `args:`.
+      - name: Capture the PR title safely
+        id: title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          delim="title_$(date +%s%N)_$RANDOM"
+          {
+            echo "value<<$delim"
+            echo "$PR_TITLE"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      # BASE_REF and HEAD_SHA come from the event, so they are read through the environment too, never interpolated
+      # into the script body, even though a base ref has to name an existing branch and a head sha is a commit hash.
+      - name: Gather the base and head version files
+        id: gather
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_REF"
+          base="origin/$BASE_REF"
+          scratch="$RUNNER_TEMP/version-check"
+          mkdir -p "$scratch"
+
+          git show "$base:package.json" > "$scratch/base-package.json"
+          git show "$HEAD_SHA:package.json" > "$scratch/head-package.json"
+          git show "$HEAD_SHA:package-lock.json" > "$scratch/head-lock.json"
+          # Releasing types may change anything. docs, ci and test release nothing, so they must not change what ships.
+          git diff --name-only "$base...$HEAD_SHA" > "$scratch/changed.txt"
+
+          echo "base-version=$(jq -r .version "$scratch/base-package.json")" >> "$GITHUB_OUTPUT"
+          echo "package-version=$(jq -r .version "$scratch/head-package.json")" >> "$GITHUB_OUTPUT"
+          echo "lock-version=$(jq -r .version "$scratch/head-lock.json")" >> "$GITHUB_OUTPUT"
+          echo "lock-root-version=$(jq -r '.packages[""].version' "$scratch/head-lock.json")" >> "$GITHUB_OUTPUT"
+
+      # base-version is read from the base branch's own package.json, a trusted ref the PR cannot rewrite, so (unlike
+      # the title) it is fine to reference directly here.
+      - name: Determine the expected version
+        id: expected-version
+        uses: tpetrus/ci-workflows/actions/release-cli@main
+        with:
+          command: expected-version
+          args: |
+            --base-version
+            ${{ steps.gather.outputs.base-version }}
+            ${{ steps.title.outputs.value }}
+
+      # continue-on-error, so a version mismatch does not skip the check-shipped step below: both checks must run and
+      # both must be reflected in the job's final result, the same as AV's single script accumulating one exit status.
+      - name: Compare the version
+        id: compare
+        continue-on-error: true
+        env:
+          EXPECTED: ${{ steps.expected-version.outputs.stdout }}
+          BASE_VERSION: ${{ steps.gather.outputs.base-version }}
+          PACKAGE_VERSION: ${{ steps.gather.outputs.package-version }}
+          LOCK_VERSION: ${{ steps.gather.outputs.lock-version }}
+          LOCK_ROOT_VERSION: ${{ steps.gather.outputs.lock-root-version }}
+        run: |
+          set -uo pipefail
+          expected="${EXPECTED%$'\n'}"
+          status=0
+          hint="The version bot normally sets this itself; if it has not run yet, wait for it or run: npx github:tpetrus/ci-workflows#main release write-version $expected"
+          check() {
+            if [ "$2" != "$expected" ]; then
+              echo "::error::$1 is $2 but this PR must set $expected (base is $BASE_VERSION). $hint"
+              status=1
+            fi
+          }
+          check "package.json version" "$PACKAGE_VERSION"
+          check "package-lock.json version" "$LOCK_VERSION"
+          check 'package-lock.json packages[""].version' "$LOCK_ROOT_VERSION"
+          exit $status
+
+      # shipped-prefixes/shipped-files are authored by the caller workflow, not by a PR, so they are read directly
+      # here; the title still goes through the environment for the same reason as above. The flags are built one
+      # argument per line (release-cli's `args:` contract), and if both inputs end up empty, check-shipped itself
+      # fails with its own clear error (`Missing --shipped-prefix or --shipped-file ...`), so nothing is silently
+      # skipped.
+      - name: Build the check-shipped arguments
+        id: shipped-args
+        env:
+          SHIPPED_PREFIXES: ${{ inputs.shipped-prefixes }}
+          SHIPPED_FILES: ${{ inputs.shipped-files }}
+          PR_TITLE: ${{ steps.title.outputs.value }}
+        run: |
+          set -uo pipefail
+          delim="shipped_args_$(date +%s%N)_$RANDOM"
+          {
+            echo "value<<$delim"
+            echo "--base-package"
+            echo "$RUNNER_TEMP/version-check/base-package.json"
+            echo "--head-package"
+            echo "$RUNNER_TEMP/version-check/head-package.json"
+            echo "--changed-files"
+            echo "$RUNNER_TEMP/version-check/changed.txt"
+            while IFS= read -r prefix; do
+              [ -n "$prefix" ] || continue
+              echo "--shipped-prefix"
+              echo "$prefix"
+            done <<< "$SHIPPED_PREFIXES"
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              echo "--shipped-file"
+              echo "$file"
+            done <<< "$SHIPPED_FILES"
+            echo "$PR_TITLE"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check that shipped inputs are covered
+        id: check-shipped
+        continue-on-error: true
+        uses: tpetrus/ci-workflows/actions/release-cli@main
+        with:
+          command: check-shipped
+          args: ${{ steps.shipped-args.outputs.value }}
+
+      # Both checks ran regardless of each other (continue-on-error above); the job fails if either did.
+      - name: Fail if either check failed
+        if: steps.compare.outcome == 'failure' || steps.check-shipped.outcome == 'failure'
+        run: exit 1
