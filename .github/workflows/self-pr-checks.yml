@@ -1,0 +1,41 @@
+name: Self PR checks
+
+# Thin caller of this repo's own reusable pr-checks.yml -- the same workflow every other repo calling this one gets,
+# run here first as its own dogfood test.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@main
+    with:
+      # scripts/ and actions/ are what this repo ships to every other repo that depends on it: the release/lockfile
+      # CLI and the composite actions. package.json's own dependencies/devDependencies are already covered
+      # generically by the reusable workflow; package-lock.json needs no separate entry for the same reason.
+      shipped-prefixes: |
+        scripts/
+        actions/
+      # The reusable workflows under .github/workflows/ are this repo's other shipped product: every other repo's
+      # CI calls them by `uses:`, just like the composite actions above, so a behavior change to one of them needs a
+      # releasing title the same way a scripts/ or actions/ change does. Listed individually here (rather than as a
+      # .github/workflows/ prefix) so the four self-*.yml files, which are purely this repo's own internal pipeline
+      # and nothing else depends on, do not force a releasing title when they change; a plain "ci:" title is the
+      # right fit for those, the same as any other repo's own CI tweaks.
+      shipped-files: |
+        package.json
+        .github/workflows/pr-checks.yml
+        .github/workflows/version-bump.yml
+        .github/workflows/release.yml
+        .github/workflows/node-ci.yml
+        .github/workflows/security.yml
+        .github/workflows/codeql.yml
+        .github/workflows/smoke.yml
+        .github/workflows/update-snapshots.yml
