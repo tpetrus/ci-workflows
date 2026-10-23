@@ -27,7 +27,7 @@ jobs:
     steps:
       # Full history and tags, to find the previous release and list the pull requests merged since. This checks out
       # the caller's own repository at the pushed commit, which has nothing to do with this repo's own history.
-      - uses: tpetrus/ci-workflows/actions/setup@main
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
         with:
           fetch-depth: '0'
           npm-ci-args: --ignore-scripts
@@ -67,7 +67,7 @@ jobs:
       - name: Build the release notes
         id: notes
         if: steps.check.outputs.needed == 'true'
-        uses: tpetrus/ci-workflows/actions/release-cli@main
+        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
         with:
           command: notes
           args: |

@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   pr-checks:
-    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@main
+    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@main # zizmor: ignore[unpinned-uses] this wrapper exists to dogfood this repo's own reusable workflow against its current commit, not a stale pin; it can't be pinned to its own not-yet-created commit either
     with:
       # scripts/ and actions/ are what this repo ships to every other repo that depends on it: the release/lockfile
       # CLI and the composite actions. package.json's own dependencies/devDependencies are already covered

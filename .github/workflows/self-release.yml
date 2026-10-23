@@ -1,14 +1,15 @@
 name: Self release
 
-# Thin caller of this repo's own reusable release.yml. Trigger, concurrency and permissions mirror
-# AudioVisualizer-React's release.yml exactly: permissions must be granted here for the reusable workflow to use
-# them, and releases run one at a time, in push order, with a later push never cancelling one that is half-created.
+# Thin caller of this repo's own reusable release.yml. Trigger and concurrency mirror AudioVisualizer-React's
+# release.yml exactly; releases run one at a time, in push order, with a later push never cancelling one that is
+# half-created. Permissions must be granted for the reusable workflow to use them, but scoped to the job that
+# actually calls it rather than the whole workflow (a tighter version of the same contract AV's release.yml relies
+# on -- worth carrying back there too).
 on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: self-release
@@ -16,4 +17,7 @@ concurrency:
 
 jobs:
   release:
-    uses: tpetrus/ci-workflows/.github/workflows/release.yml@main
+    permissions:
+      # release.yml's own release job needs this to create the tag and the release; see its header comment.
+      contents: write
+    uses: tpetrus/ci-workflows/.github/workflows/release.yml@main # zizmor: ignore[unpinned-uses] this wrapper exists to dogfood this repo's own reusable workflow against its current commit, not a stale pin; it can't be pinned to its own not-yet-created commit either
