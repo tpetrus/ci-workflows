@@ -259,7 +259,7 @@ jobs:
 
       # The reporter is set here, not in the caller's Playwright config, so blob reports are available for
       # e2e-result to merge into one HTML report when something fails.
-      - run: npx playwright test --shard=$SHARD/$JOB_TOTAL --reporter=blob,list
+      - run: npx playwright test --shard="$SHARD/$JOB_TOTAL" --reporter=blob,list
         env:
           SHARD: ${{ matrix.shard }}
           JOB_TOTAL: ${{ strategy.job-total }}
