@@ -41,9 +41,15 @@ runs:
         cache: npm
 
     # check-lockfile.ts lives at this action's own repo root (scripts/check-lockfile.ts), not in the caller's
-    # checkout, so it must be run from github.action_path rather than a path relative to the caller's working
-    # directory. This action lives at actions/setup/, so ../.. reaches that repo root.
-    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "$LOCKFILE_PATH"
+    # checkout, so it must be run from the action's own path rather than a path relative to the caller's working
+    # directory. Use the $GITHUB_ACTION_PATH shell variable, not the ${{ github.action_path }} expression: the
+    # expression is substituted as literal text by the Actions service before the runner starts the step, so in a
+    # job with `container:` it still contains the host-side path, not the container-side path the step actually
+    # runs in (the runner execs every step, including composite-action steps, into the container). The
+    # environment variable is set by the runner itself at exec time and is translated to the container-side path
+    # (see https://github.com/actions/runner/issues/2185). This action lives at actions/setup/, so ../.. reaches
+    # that repo root.
+    - run: node "$GITHUB_ACTION_PATH/../../scripts/check-lockfile.ts" "$LOCKFILE_PATH"
       shell: bash
       env:
         LOCKFILE_PATH: ${{ inputs['lockfile-path'] }}
