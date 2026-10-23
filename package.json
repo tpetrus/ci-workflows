@@ -1,0 +1,27 @@
+{
+  "name": "ci-workflows",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "ci-tools": "scripts/bin.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check-lockfile": "node scripts/check-lockfile.ts",
+    "release": "node scripts/release/cli.ts"
+  },
+  "dependencies": {
+    "semver": "^7.8.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/semver": "^7.8.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}

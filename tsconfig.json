@@ -1,0 +1,17 @@
+{
+  "include": ["scripts/**/*"],
+  "exclude": ["node_modules"],
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    // scripts/ is run directly by Node, which needs the .ts extension on relative imports.
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true
+  }
+}
