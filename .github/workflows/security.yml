@@ -1,0 +1,61 @@
+name: Security
+
+# Reusable workflow: the caller's own wrapper workflow owns the pull_request/push/schedule triggers (and any
+# concurrency group) for the run that reaches this workflow.
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      # Production dependencies are what ships to users, so high/critical advisories block.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      # Dev tooling advisories are reported but do not block: they never reach the deployed bundle and are often
+      # unfixable until an upstream release.
+      - name: Audit all dependencies (informational)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  dependency-review:
+    # The action diffs the PR's dependency changes against the base branch, so it only makes sense on pull requests.
+    # This reads the calling run's actual trigger event: workflow_call carries no event of its own, so
+    # github.event_name here reflects whatever triggered the caller.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Needed to post the summary comment when the check fails.
+      pull-requests: write
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # Scans the caller's own .github/workflows for Actions security issues (template injection, excessive permissions,
+  # unpinned actions, etc). New compared to AV, which predates this check.
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No node/npm needed for this job, so plain checkout replaces the full setup action here.
+      - uses: actions/checkout@v7
+
+      # pipx ships preinstalled on the ubuntu-latest image and runs zizmor from its own isolated venv, which
+      # sidesteps the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's
+      # system Python. zizmor exits non-zero as soon as it reports any finding, so no extra flag is needed to fail
+      # the job on a finding.
+      - name: Scan workflows with zizmor
+        run: pipx run zizmor .github/
