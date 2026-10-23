@@ -1,0 +1,383 @@
+name: Node CI
+
+# Reusable workflow for Node/npm projects. Replaces, for AudioVisualizer-React, the four separate workflows
+# ci.yml, size.yml, lighthouse.yml and e2e.yml: one shared build job feeds every job that needs the built output,
+# instead of each workflow building it again on its own.
+#
+# Callers own concurrency (e.g. `concurrency: group: ci-${{ github.ref }}`); this file intentionally has none, since
+# a reusable workflow's own `concurrency:` would fight the caller's.
+
+on:
+  workflow_call:
+    inputs:
+      build-dir:
+        description: Where the production build is written (e.g. "build/client" or "dist").
+        type: string
+        required: true
+      max-file-size:
+        description: >
+          Fails the build if any git-tracked file exceeds this size, compared in exact bytes (not find(1)'s
+          block-rounded -size semantics). Accepts a plain byte count (e.g. "500000") or a 1024-based size with a
+          case-insensitive K/KB, M/MB, G/GB or T/TB suffix (e.g. "2MB", "5MB"); "MB" and "M" are equivalent and both
+          mean 1024^2 bytes.
+        type: string
+        default: 5MB
+      size:
+        description: Run the bundle-size budget job (reads .size-limit.json from the build).
+        type: boolean
+        default: true
+      lighthouse:
+        description: Run the Lighthouse budget job (reads lighthouserc.json).
+        type: boolean
+        default: true
+      e2e:
+        description: Run the Playwright E2E jobs.
+        type: boolean
+        default: true
+      links:
+        description: Run the internal broken-link check against the build output.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# The suite is split across parallel jobs ("shards") automatically, so adding tests (or a visualizer, which adds a
+# test to every spec that loops over them) never needs a workflow edit. The e2e-plan job counts the tests and picks the
+# shard count from these two knobs:
+#   TESTS_PER_SHARD  how many tests one shard should run. Each shard pays a fixed per-job cost (container start,
+#                    npm ci, artifact download, wrangler start-up), so smaller shards finish sooner but spend more
+#                    runner minutes. Retune it only if tests get much cheaper or dearer.
+#   MAX_SHARDS       an upper bound on the shard count. GitHub Free allows 20 concurrent jobs per account and other
+#                    workflows need some of them, so a huge suite must not starve those. Past the cap the shards
+#                    simply get bigger, and the plan job prints a warning.
+env:
+  TESTS_PER_SHARD: 3
+  MAX_SHARDS: 10
+
+jobs:
+  # Builds once; every job below that needs the production output downloads this artifact instead of rebuilding.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      # Build only: deployment is a separate concern for the caller, never done from this workflow.
+      - run: npm run build
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-output
+          path: ${{ inputs.build-dir }}
+          retention-days: 1
+
+  # Runs in parallel with `build`: it never touches the built output.
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - run: npm run format:check
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm run test:coverage
+
+      # Uploaded even when a threshold fails, so the HTML report can show what is uncovered.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  # Catches a multi-megabyte photo or video accidentally committed to git, before it reaches the caller's default
+  # branch. Needs only the checkout, not Node, so it stays independent of `build`/`quality` and their npm install.
+  max-file-size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: |
+          # Converts the human-readable max-file-size input (see the input's description for the accepted formats)
+          # to an exact byte count. Uses `numfmt --from=iec`, which multiplies K/M/G/T by 1024/1024^2/1024^3/1024^4;
+          # a trailing "B" (as in "5MB") is stripped first since numfmt's iec mode does not accept it.
+          input='${{ inputs.max-file-size }}'
+          upper=$(printf '%s' "$input" | tr '[:lower:]' '[:upper:]')
+          if [[ "$upper" =~ ^[0-9]+$ ]]; then
+            threshold="$upper"
+          elif [[ "$upper" =~ ^([0-9]+)(K|M|G|T)B?$ ]]; then
+            threshold=$(numfmt --from=iec "${BASH_REMATCH[1]}${BASH_REMATCH[2]}")
+          else
+            echo "::error::Invalid max-file-size '$input'. Use a plain byte count or <number><K|KB|M|MB|G|GB|T|TB>, e.g. 500000, 5MB, 2GB."
+            exit 1
+          fi
+          echo "Max tracked file size: $input ($threshold bytes)"
+
+          status=0
+          while IFS= read -r -d '' file; do
+            size=$(stat -c%s -- "$file")
+            if [ "$size" -gt "$threshold" ]; then
+              echo "::error file=$file::$file is $size bytes, exceeding the $threshold byte limit ($input)."
+              status=1
+            fi
+          done < <(git ls-files -z)
+          exit "$status"
+
+  # Reads the build output artifact; it does not rebuild. Gated so a disabled check shows as "skipped", and
+  # `success()` keeps the normal default of not running against a build that failed.
+  size:
+    needs: build
+    if: inputs.size && success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output
+          path: ${{ inputs.build-dir }}
+
+      - run: npm run size
+
+  # Reads the build output artifact; it does not rebuild.
+  lighthouse:
+    needs: build
+    if: inputs.lighthouse && success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output
+          path: ${{ inputs.build-dir }}
+
+      - run: npm run lighthouse
+
+      # Uploaded even when a threshold fails, so the HTML reports show what to fix.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: lighthouse
+          path: .lighthouseci/
+          # The directory name starts with a dot, which upload-artifact skips unless told otherwise.
+          include-hidden-files: true
+          retention-days: 14
+
+  # Counts the tests and decides how many shards to run, and picks the Playwright container image. `playwright test
+  # --list` only loads the spec files: it starts no browser and no webServer and needs no build, so this job needs
+  # neither the container nor the build output.
+  e2e-plan:
+    if: inputs.e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      # Keeps the container image locked to the installed @playwright/test version automatically, so bumping the
+      # dependency (including via Dependabot) never needs this workflow edited by hand.
+      - id: image
+        run: |
+          version=$(node -p "require('@playwright/test/package.json').version")
+          echo "image=mcr.microsoft.com/playwright:v${version}-noble" >> "$GITHUB_OUTPUT"
+
+      - id: plan
+        run: |
+          npx playwright test --list --reporter=json > list.json
+          node <<'JS'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('list.json', 'utf8'));
+          // Each entry in a spec's `tests` is one test in one project, which is the unit --shard splits by.
+          const count = (suite) =>
+            (suite.specs ?? []).reduce((n, spec) => n + spec.tests.length, 0) +
+            (suite.suites ?? []).reduce((n, child) => n + count(child), 0);
+          const total = report.suites.reduce((n, suite) => n + count(suite), 0);
+          // An empty plan would otherwise pass with zero shards and the required check would go green untested.
+          if (report.errors.length > 0 || total === 0) {
+            console.log('::error::Could not list the tests: ' + JSON.stringify(report.errors));
+            process.exit(1);
+          }
+          const perShard = Number(process.env.TESTS_PER_SHARD);
+          const max = Number(process.env.MAX_SHARDS);
+          const wanted = Math.ceil(total / perShard);
+          const shards = Math.min(Math.max(wanted, 1), max);
+          if (wanted > max) {
+            console.log(`::warning::${total} tests would need ${wanted} shards; capped at MAX_SHARDS=${max}.`);
+          }
+          console.log(`${total} tests -> ${shards} shards (TESTS_PER_SHARD=${perShard}, MAX_SHARDS=${max})`);
+          const list = Array.from({ length: shards }, (_, i) => i + 1);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `shards=${JSON.stringify(list)}\n`);
+          JS
+
+  e2e:
+    needs: [e2e-plan, build]
+    if: inputs.e2e && success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Let every shard finish so one failure doesn't hide others; e2e-result reports the overall outcome.
+      fail-fast: false
+      matrix:
+        # GitHub resolves a job's matrix even when that job's own `if:` will skip it, so this must stay valid JSON
+        # when e2e-plan was itself skipped (inputs.e2e: false), in which case its outputs are empty strings. The
+        # `[1]` fallback is never actually used for a real shard: e2e-plan and this job share the same `inputs.e2e`
+        # gate, so e2e-plan being skipped means this job is skipped too.
+        shard: ${{ fromJSON(needs.e2e-plan.outputs.shards || '[1]') }}
+    # The official Playwright image ships the browsers and their OS libraries, and gives every run the same fonts and
+    # rendering, which visual-regression baselines can depend on. Its tag comes from e2e-plan, which reads it off the
+    # installed @playwright/test version, so it never drifts out of sync.
+    # Same reasoning as the matrix above applies to the fallback: kept as a real, valid image reference in case it
+    # is resolved before the skip is applied; it is never pulled, since e2e-plan being skipped skips this job too.
+    container:
+      image: ${{ needs.e2e-plan.outputs.image || 'mcr.microsoft.com/playwright:v1.64.1-noble' }}
+      options: --ipc=host
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output
+          path: ${{ inputs.build-dir }}
+
+      # The reporter is set here, not in the caller's Playwright config, so blob reports are available for
+      # e2e-result to merge into one HTML report when something fails.
+      - run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob,list
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Includes the expected/actual/diff images of any failed visual comparison.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: test-results-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Feeds the `result` aggregator below. When everything passed it does almost nothing; only on failure does it
+  # merge the shards' blob reports into one HTML report. `always()` lets it still run and report when e2e-plan or
+  # e2e failed or was cancelled; combined with `inputs.e2e` it is skipped outright when the feature is off.
+  e2e-result:
+    needs: [e2e-plan, e2e]
+    if: inputs.e2e && always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # A failed, cancelled or skipped needed job is not a pass, so require every result to be exactly "success".
+      - id: verdict
+        run: |
+          echo "e2e-plan: $PLAN, e2e: $E2E"
+          if [ "$PLAN" = success ] && [ "$E2E" = success ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          PLAN: ${{ needs.e2e-plan.result }}
+          E2E: ${{ needs.e2e.result }}
+
+      - if: steps.verdict.outputs.passed != 'true'
+        uses: tpetrus/ci-workflows/actions/setup@main
+
+      - if: steps.verdict.outputs.passed != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: blob-report-*
+          path: all-blob-reports
+          merge-multiple: true
+
+      - if: steps.verdict.outputs.passed != 'true'
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - if: steps.verdict.outputs.passed != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - if: steps.verdict.outputs.passed != 'true'
+        run: exit 1
+
+  # Internal broken-link check against the build output. Live external URLs are deliberately not checked here
+  # (a separate, non-blocking, daily workflow owned by the caller does that); --offline makes lychee refuse every
+  # network request, so only links that resolve to files already in the build output (and in-page fragments) are
+  # checked.
+  links:
+    needs: build
+    if: inputs.links && success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output
+          path: ${{ inputs.build-dir }}
+
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --offline --no-progress --include-fragments './**/*.html'
+          workingDirectory: ${{ inputs.build-dir }}
+          fail: true
+
+  # The one required status check: its inputs never change as size/lighthouse/e2e/links are toggled, so branch
+  # protection needs no edit when a caller flips one of those booleans.
+  result:
+    needs: [quality, max-file-size, build, size, lighthouse, e2e-result, links]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # quality, max-file-size and build are never optional, so a skip or failure of any of them fails this check.
+      # size, lighthouse, e2e-result and links are optional (toggled by the inputs above): "skipped" is fine for
+      # them, but only because a "build" failure already fails this check on its own — a skip caused by that is
+      # not mistaken for a passing, disabled feature.
+      - id: verdict
+        run: |
+          echo "quality: $QUALITY, max-file-size: $MAX_FILE_SIZE, build: $BUILD"
+          echo "size: $SIZE, lighthouse: $LIGHTHOUSE, e2e-result: $E2E_RESULT, links: $LINKS"
+
+          pass=true
+          for result in "$QUALITY" "$MAX_FILE_SIZE" "$BUILD"; do
+            if [ "$result" != success ]; then
+              pass=false
+            fi
+          done
+          for result in "$SIZE" "$LIGHTHOUSE" "$E2E_RESULT" "$LINKS"; do
+            if [ "$result" != success ] && [ "$result" != skipped ]; then
+              pass=false
+            fi
+          done
+
+          if [ "$pass" = true ]; then
+            echo "All checks passed."
+          else
+            echo "::error::One or more required checks did not pass."
+            exit 1
+          fi
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          MAX_FILE_SIZE: ${{ needs.max-file-size.result }}
+          BUILD: ${{ needs.build.result }}
+          SIZE: ${{ needs.size.result }}
+          LIGHTHOUSE: ${{ needs.lighthouse.result }}
+          E2E_RESULT: ${{ needs.e2e-result.result }}
+          LINKS: ${{ needs.links.result }}
