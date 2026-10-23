@@ -30,6 +30,26 @@ jobs:
 
       - run: npm run test
 
+  # The only job that runs the published `ci-tools` bin the way a caller does: from inside a node_modules directory.
+  # Node refuses to strip types from .ts files there, so a bin that points at .ts source passes every other check in
+  # this repo (they all run the sources from a checkout) and still crashes under `npx github:...`. This is a CI job
+  # rather than a vitest spec because it runs `npm pack` (which builds) and `npm install`, which takes several
+  # seconds and needs the registry for the semver dependency, too slow and too network-bound for the unit suite. It
+  # runs on Windows as well as Linux because the bin shim npm writes differs between them (a .cmd wrapper versus a
+  # symlink to the script) and callers use both.
+  installed-package:
+    name: Installed package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+
+      - run: npm run verify:pack
+
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest
