@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # Checks out the repo, sets up Node from .nvmrc, checks the lockfile and runs npm ci.
-      - uses: tpetrus/ci-workflows/actions/setup@main
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
 
       - run: npm run typecheck
 
@@ -36,6 +36,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # actionlint has no action maintained by its own project; its docs recommend this download script over any
       # third-party action. Pinned to the v1.7.12 tag's commit, and that version is also passed explicitly, so this
@@ -56,6 +58,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # pipx ships preinstalled on the ubuntu-latest image and runs zizmor from its own isolated venv, sidestepping
       # the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's system Python.

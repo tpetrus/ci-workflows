@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
 
       # Production dependencies are what ships to users, so high/critical advisories block.
       - name: Audit production dependencies
@@ -37,7 +37,7 @@ jobs:
       # Needed to post the summary comment when the check fails.
       pull-requests: write
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
 
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
@@ -52,6 +52,8 @@ jobs:
     steps:
       # No node/npm needed for this job, so plain checkout replaces the full setup action here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # pipx ships preinstalled on the ubuntu-latest image and runs zizmor from its own isolated venv, which
       # sidesteps the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's
