@@ -7,11 +7,17 @@
     "node": ">=24"
   },
   "bin": {
-    "ci-tools": "scripts/bin.ts"
+    "ci-tools": "dist/bin.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "verify:pack": "node scripts/verifyPackedCli.ts",
     "check-lockfile": "node scripts/check-lockfile.ts",
     "release": "node scripts/release/cli.ts"
   },
