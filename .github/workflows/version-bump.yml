@@ -42,11 +42,15 @@ jobs:
     # title edit arriving mid-run must still be handled afterwards): the caller sets concurrency on the job that
     # calls this reusable workflow, since a reusable workflow does not declare its own.
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # The only write this job ever makes is a commit pushed straight to the PR branch; nothing here calls the
+          # Issues/PR/Checks APIs, so contents is the only permission the token needs, regardless of what else the
+          # app happens to be installed with elsewhere.
+          permission-contents: write
 
       # The bot's own push fires `synchronize`; the version is already right by then, but skipping avoids a pointless
       # run. Human events (including a title edit) are never skipped.
@@ -70,6 +74,9 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ steps.app.outputs.token }}
+          # The "Commit and push the version" step below pushes with a plain `git push`, relying on the app token
+          # this checkout persists; without it that push would have no credential to use.
+          persist-credentials: true
 
       # The title is captured through the environment, never interpolated directly into a run: script or into
       # release-cli's `args:`, because GitHub substitutes ${{ }} into text before anything runs: an attacker-controlled
@@ -109,7 +116,7 @@ jobs:
         id: expected-version
         if: steps.actor.outputs.skip != 'true'
         continue-on-error: true
-        uses: tpetrus/ci-workflows/actions/release-cli@main
+        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
         with:
           command: expected-version
           args: |
@@ -144,7 +151,7 @@ jobs:
       # directly. --dir is omitted: the PR branch was checked out at the job's default working directory.
       - name: Write the version
         if: steps.actor.outputs.skip != 'true' && steps.compare.outputs.needed == 'true'
-        uses: tpetrus/ci-workflows/actions/release-cli@main
+        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
         with:
           command: write-version
           args: |
@@ -174,11 +181,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # This job pushes commits (contents), lists each PR branch's open pull request (pull-requests, read is
+          # enough: nothing here updates a PR itself), and posts a conflict-notice comment through the issues
+          # endpoint pull request comments share with plain issues (issues: write).
+          permission-contents: write
+          permission-pull-requests: read
+          permission-issues: write
 
       # Full history and the app token, so branches can be merged and pushed. This is the caller's own main branch at
       # the pushed commit, so it is trusted; the PR branches merged into it below are only ever edited as data. A
@@ -190,6 +203,9 @@ jobs:
           fetch-depth: 0
           path: repo
           token: ${{ steps.app.outputs.token }}
+          # The loop below pushes each synced PR branch with a plain `git push`, relying on the app token this
+          # checkout persists; without it those pushes would have no credential to use.
+          persist-credentials: true
 
       # The release-cli action cannot be invoked from inside the shell loop below (a composite action is a workflow
       # step, not a shell command), so its source is checked out here instead, at the same trusted, maintainer-only
@@ -205,7 +221,7 @@ jobs:
           path: release-cli-src
           persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: release-cli-src/.nvmrc
 
