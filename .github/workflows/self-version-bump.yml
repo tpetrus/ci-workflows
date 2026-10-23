@@ -3,6 +3,9 @@ name: Self version bump
 # Thin caller of this repo's own reusable version-bump.yml. pull_request_target runs with secrets, so this file must
 # never run anything from the PR itself; it only ever forwards the event to the reusable workflow below.
 on:
+  # zizmor: ignore[dangerous-triggers] version-bump.yml's own header comment spells out the mitigation: the PR
+  # branch checked out by its bump-pr job is only ever read/edited as data through git and jq (and this repo's own
+  # pinned release-cli action), never executed, and nothing from the PR branch runs with this trigger's secrets.
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
   push:
@@ -13,8 +16,12 @@ permissions:
 
 jobs:
   version-bump:
-    uses: tpetrus/ci-workflows/.github/workflows/version-bump.yml@main
-    secrets: inherit
+    uses: tpetrus/ci-workflows/.github/workflows/version-bump.yml@main # zizmor: ignore[unpinned-uses] this wrapper exists to dogfood this repo's own reusable workflow against its current commit, not a stale pin; it can't be pinned to its own not-yet-created commit either
+    # Only the two secrets version-bump.yml actually declares, not every secret this repo's main branch has: a
+    # reusable workflow call can request secrets by name instead of `secrets: inherit`, so that's what this does.
+    secrets:
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     # AudioVisualizer-React's version-bump.yml sets job-level concurrency (not workflow-level) on each of its two
     # jobs, so a run is never cancelled mid-push/mid-merge by a later event. Reusable workflows in this project
     # declare no concurrency of their own (callers always do), so it is set here instead, on the one job that calls
