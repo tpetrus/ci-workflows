@@ -1,0 +1,40 @@
+name: CodeQL
+
+# Reusable workflow: the caller's own wrapper workflow owns the pull_request/push/schedule triggers (and any
+# concurrency group) for the run that reaches this workflow.
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # Required to upload results to the code scanning dashboard.
+      security-events: write
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # "actions" scans the workflow files themselves (script injection, excessive permissions, etc.).
+        language: [javascript-typescript, actions]
+    steps:
+      # build-mode: none means CodeQL never compiles anything, so it needs no node_modules; plain checkout replaces
+      # the full setup action here.
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          # Both languages are interpreted, so no build is needed.
+          build-mode: none
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}
