@@ -19,8 +19,9 @@ on:
 
 # No concurrency group here: the caller's own wrapper workflow decides concurrency.
 
-permissions:
-  contents: write
+# {} at the workflow level: both jobs below already declare their own narrower permissions, so nothing here would
+# ever actually use a broader workflow-level default.
+permissions: {}
 
 jobs:
   # A job's container image must be fixed before any of its steps run, so it cannot be computed from a step in the
@@ -34,7 +35,7 @@ jobs:
     outputs:
       version: ${{ steps.playwright.outputs.version }}
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
 
       - name: Read the installed Playwright version
         id: playwright
@@ -45,14 +46,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      # This job commits and pushes the regenerated snapshots; see the "Commit updated snapshots" step below.
       contents: write
     # Must be the same image the caller's e2e job uses, and its tag must match the installed @playwright/test
     # version, so the baselines are rendered by the same browser build and fonts that later compare against them.
     container:
-      image: mcr.microsoft.com/playwright:v${{ needs.detect-playwright-version.outputs.version }}-noble
+      # Deliberately a tag, not a SHA256 digest: the tag always matches the @playwright/test version installed by
+      # the previous job, which is only known at run time, so there is no fixed digest to pin to without
+      # reintroducing the manual-update problem this design exists to avoid.
+      image: mcr.microsoft.com/playwright:v${{ needs.detect-playwright-version.outputs.version }}-noble # zizmor: ignore[unpinned-images] see comment above
       options: --ipc=host
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main
+      # The commit-and-push step below needs the credential this leaves behind; see persist-credentials there.
+      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+        with:
+          persist-credentials: true
 
       # Building only: deployment happens through the calling repo's own hosting, never from CI.
       - name: Build
