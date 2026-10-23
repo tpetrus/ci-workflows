@@ -1,0 +1,95 @@
+name: Release
+
+# Reusable workflow: the caller declares its own `push: branches: [main]` trigger and its own `concurrency:` block
+# (e.g. a single `group: release` with `cancel-in-progress: false`, so a later push cannot cancel a release
+# half-created); this file does not declare either.
+#
+# Tags and publishes a GitHub Release whenever the caller's main branch carries a version that has no tag yet
+# (ported from AudioVisualizer-React's release.yml; see "Versioning and releases" in its AGENTS.md). It creates a tag
+# and a release only; it never pushes a commit, because every push to the caller's main is a production deploy. Safe
+# to re-run: when the tag already exists it does nothing.
+#
+# This job needs `permissions: contents: write` to create the tag and the release. A reusable workflow cannot be
+# granted more than its caller has, so the caller's own workflow must also declare `permissions: contents: write` at
+# its top level.
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # Full history and tags, to find the previous release and list the pull requests merged since. This checks out
+      # the caller's own repository at the pushed commit, which has nothing to do with this repo's own history.
+      - uses: tpetrus/ci-workflows/actions/setup@main
+        with:
+          fetch-depth: '0'
+          npm-ci-args: --ignore-scripts
+
+      - name: Check for an existing release
+        id: check
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version package.json)
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "Tag $tag already exists; nothing to release."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $tag does not exist yet; releasing $version."
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the release log
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          set -euo pipefail
+          # The newest tag reachable from this commit marks where the previous release ended. With no tag yet (the
+          # first release) the notes cover the whole history.
+          if previous=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2> /dev/null); then
+            range="$previous..HEAD"
+          else
+            range="HEAD"
+          fi
+          git log --first-parent --format='%H%x1f%s%x1f%b%x1e' "$range" > "$RUNNER_TEMP/log.txt"
+
+      # VERSION and the log file path are computed by this job itself, not attacker-controlled, so they are fine to
+      # reference directly in `args:` here (unlike a PR title or branch name). `runner.temp` is the context-expression
+      # form of the same path the previous step wrote to via the shell variable $RUNNER_TEMP.
+      - name: Build the release notes
+        id: notes
+        if: steps.check.outputs.needed == 'true'
+        uses: tpetrus/ci-workflows/actions/release-cli@main
+        with:
+          command: notes
+          args: |
+            --version
+            ${{ steps.check.outputs.version }}
+            --log-file
+            ${{ runner.temp }}/log.txt
+
+      - name: Create the release
+        if: steps.check.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.check.outputs.version }}
+          TAG: ${{ steps.check.outputs.tag }}
+          NOTES: ${{ steps.notes.outputs.stdout }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$NOTES" > "$RUNNER_TEMP/notes.md"
+
+          flags=()
+          # A version with a prerelease part (0.1.0-beta) is marked as a pre-release on GitHub.
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+
+          # `gh release create` creates the tag at the given commit, so no git push is involved.
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
