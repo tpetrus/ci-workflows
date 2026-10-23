@@ -18,7 +18,7 @@ on:
         type: string
         required: true
       ref:
-        description: Commit to check out and test (the caller passes e.g. "${{ github.event.check_run.head_sha || '' }}"); empty uses the default ref.
+        description: Commit to check out and test; the caller passes the check_run's head SHA when it has one, empty uses the default ref.
         type: string
         default: ''
 
