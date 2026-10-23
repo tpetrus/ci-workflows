@@ -1,0 +1,102 @@
+name: Update visual snapshots
+
+# Regenerates Playwright visual-regression baselines and commits them back to whatever ref this workflow was
+# checked out on. Trigger-agnostic: the caller's own wrapper workflow owns workflow_dispatch (or any other trigger)
+# and picks the branch; this workflow always just runs against the ref it is given once invoked.
+#
+# The caller must also grant `permissions: contents: write` at its own top level, since the job below pushes a
+# commit.
+on:
+  workflow_call:
+    inputs:
+      build-dir:
+        type: string
+        required: true
+      snapshot-test-file:
+        description: Which Playwright spec to regenerate snapshots for.
+        type: string
+        default: e2e/visual.spec.ts
+
+# No concurrency group here: the caller's own wrapper workflow decides concurrency.
+
+permissions:
+  contents: write
+
+jobs:
+  # A job's container image must be fixed before any of its steps run, so it cannot be computed from a step in the
+  # same job. The installed @playwright/test version (which differs per calling repo) is read here, outside any
+  # container, and handed to the `update` job's container.image through `needs`.
+  detect-playwright-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.playwright.outputs.version }}
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - name: Read the installed Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+  update:
+    needs: detect-playwright-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    # Must be the same image the caller's e2e job uses, and its tag must match the installed @playwright/test
+    # version, so the baselines are rendered by the same browser build and fonts that later compare against them.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.detect-playwright-version.outputs.version }}-noble
+      options: --ipc=host
+    steps:
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      # Building only: deployment happens through the calling repo's own hosting, never from CI.
+      - name: Build
+        run: npm run build
+        env:
+          NODE_OPTIONS: --dns-result-order=ipv4first
+
+      - name: Verify the build produced output
+        run: |
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "::error::Build directory '$BUILD_DIR' was not found after npm run build" >&2
+            exit 1
+          fi
+        env:
+          BUILD_DIR: ${{ inputs.build-dir }}
+
+      - name: Regenerate snapshots
+        run: npx playwright test "$SNAPSHOT_TEST_FILE" --update-snapshots
+        env:
+          SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
+
+      # Commits only the snapshot directories next to the spec file, so nothing else the run produced can end up in
+      # the branch.
+      - name: Commit updated snapshots
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all -- "$(dirname "$SNAPSHOT_TEST_FILE")"/*-snapshots/*
+          if git diff --cached --quiet; then
+            echo "Snapshots are already up to date."
+          else
+            git commit -m "Update visual snapshots"
+            git push
+          fi
+        env:
+          SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: update-snapshots-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
