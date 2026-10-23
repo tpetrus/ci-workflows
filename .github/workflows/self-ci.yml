@@ -1,0 +1,66 @@
+name: Self CI
+
+# This repo's own quality gates. It has no built web app and no build-dir, so this does not call the reusable
+# node-ci.yml (that workflow assumes both); it is a plain, non-reusable workflow instead. Besides this repo's own
+# typecheck/test, it runs actionlint and zizmor over the workflows and composite actions this repo ships to every
+# other repo.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Checks out the repo, sets up Node from .nvmrc, checks the lockfile and runs npm ci.
+      - uses: tpetrus/ci-workflows/actions/setup@main
+
+      - run: npm run typecheck
+
+      - run: npm run test
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # actionlint has no action maintained by its own project; its docs recommend this download script over any
+      # third-party action. Pinned to the v1.7.12 tag's commit, and that version is also passed explicitly, so this
+      # step never silently picks up a newer actionlint release later.
+      - name: Install actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
+
+      # No arguments: actionlint finds every workflow file under .github/workflows on its own. It cannot take an
+      # action.yml path as a direct CLI argument (per its own docs: "it is not supported to specify action.yml
+      # directly via command line arguments"), so actions/*/action.yml is covered by the zizmor job below instead,
+      # not here.
+      - name: Run actionlint
+        run: ./actionlint -color
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # pipx ships preinstalled on the ubuntu-latest image and runs zizmor from its own isolated venv, sidestepping
+      # the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's system Python.
+      # Scans both the workflows and the composite actions: this is the one workflow in the whole system that sees
+      # the actual reusable-workflow and composite-action logic, not just a thin caller of it. zizmor exits non-zero
+      # as soon as it reports any finding, so no extra flag is needed to fail the job on a finding.
+      - name: Scan workflows and actions with zizmor
+        run: pipx run zizmor .github/workflows actions
