@@ -1,0 +1,26 @@
+name: Self version bump
+
+# Thin caller of this repo's own reusable version-bump.yml. pull_request_target runs with secrets, so this file must
+# never run anything from the PR itself; it only ever forwards the event to the reusable workflow below.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-bump:
+    uses: tpetrus/ci-workflows/.github/workflows/version-bump.yml@main
+    secrets: inherit
+    # AudioVisualizer-React's version-bump.yml sets job-level concurrency (not workflow-level) on each of its two
+    # jobs, so a run is never cancelled mid-push/mid-merge by a later event. Reusable workflows in this project
+    # declare no concurrency of their own (callers always do), so it is set here instead, on the one job that calls
+    # it. One group covers both triggers: a pull_request_target event keys off the PR number (mirroring AV's
+    # version-bump-pr-<number>), and a push event (always to main, per the trigger filter above) falls back to
+    # github.ref (mirroring AV's version-bump-main).
+    concurrency:
+      group: self-version-bump-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: false
