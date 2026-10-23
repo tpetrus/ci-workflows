@@ -99,10 +99,12 @@ jobs:
           # Releasing types may change anything. docs, ci and test release nothing, so they must not change what ships.
           git diff --name-only "$base...$HEAD_SHA" > "$scratch/changed.txt"
 
-          echo "base-version=$(jq -r .version "$scratch/base-package.json")" >> "$GITHUB_OUTPUT"
-          echo "package-version=$(jq -r .version "$scratch/head-package.json")" >> "$GITHUB_OUTPUT"
-          echo "lock-version=$(jq -r .version "$scratch/head-lock.json")" >> "$GITHUB_OUTPUT"
-          echo "lock-root-version=$(jq -r '.packages[""].version' "$scratch/head-lock.json")" >> "$GITHUB_OUTPUT"
+          {
+            echo "base-version=$(jq -r .version "$scratch/base-package.json")"
+            echo "package-version=$(jq -r .version "$scratch/head-package.json")"
+            echo "lock-version=$(jq -r .version "$scratch/head-lock.json")"
+            echo "lock-root-version=$(jq -r '.packages[""].version' "$scratch/head-lock.json")"
+          } >> "$GITHUB_OUTPUT"
 
       # base-version is read from the base branch's own package.json, a trusted ref the PR cannot rewrite, so (unlike
       # the title) it is fine to reference directly here.

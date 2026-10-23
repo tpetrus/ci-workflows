@@ -60,7 +60,7 @@ jobs:
           SENDER: ${{ github.event.sender.login }}
           SLUG: ${{ steps.app.outputs.app-slug }}
         run: |
-          if [ "$SENDER" = "$SLUG[bot]" ]; then
+          if [ "$SENDER" = "${SLUG}[bot]" ]; then
             echo "Triggered by the version bot itself; nothing to do."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
@@ -166,9 +166,9 @@ jobs:
           EXPECTED: ${{ steps.compare.outputs.value }}
         run: |
           set -euo pipefail
-          bot_id=$(gh api "/users/$SLUG[bot]" --jq .id)
-          git config user.name "$SLUG[bot]"
-          git config user.email "$bot_id+$SLUG[bot]@users.noreply.github.com"
+          bot_id=$(gh api "/users/${SLUG}[bot]" --jq .id)
+          git config user.name "${SLUG}[bot]"
+          git config user.email "$bot_id+${SLUG}[bot]@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "chore: set version to $EXPECTED"
           git push origin "HEAD:refs/heads/$HEAD_REF"
@@ -237,9 +237,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          bot_id=$(gh api "/users/$SLUG[bot]" --jq .id)
-          git config user.name "$SLUG[bot]"
-          git config user.email "$bot_id+$SLUG[bot]@users.noreply.github.com"
+          bot_id=$(gh api "/users/${SLUG}[bot]" --jq .id)
+          git config user.name "${SLUG}[bot]"
+          git config user.email "$bot_id+${SLUG}[bot]@users.noreply.github.com"
           git config merge.conflictStyle merge
 
           cli="$GITHUB_WORKSPACE/release-cli-src/scripts/release/cli.ts"

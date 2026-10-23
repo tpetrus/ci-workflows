@@ -41,10 +41,14 @@ stay in the caller's own repo. This repo only orchestrates them; it doesn't own 
 
 ## Example
 
-A caller references this repo's workflows with `uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@v1`. These
-three examples are adapted from this repo's own `self-pr-checks.yml` and `self-release.yml` (which call `@main`
-since they dogfood this repo against itself), plus a `node-ci.yml` caller built from that workflow's own declared
-inputs — generalized here for a typical caller instead of a self-reference.
+A caller references this repo's workflows with
+`uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@<sha> # <version>` — see
+[Versioning](#versioning) below for why a SHA, not `@v1`, is what actually goes in a `uses:` line. These three
+examples are adapted from this repo's own `self-pr-checks.yml` and `self-release.yml` (which call `@main` since
+they dogfood this repo against itself), plus a `node-ci.yml` caller built from that workflow's own declared
+inputs — generalized here for a typical caller instead of a self-reference. Replace `<sha>` in each example below
+with the real commit SHA for the version you're pinning to (see [Versioning](#versioning)); these examples use a
+placeholder since no fixed SHA stays accurate as this repo releases new versions.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -64,7 +68,7 @@ permissions:
 
 jobs:
   ci:
-    uses: tpetrus/ci-workflows/.github/workflows/node-ci.yml@v1
+    uses: tpetrus/ci-workflows/.github/workflows/node-ci.yml@<sha> # v1.2.3
     with:
       build-dir: build/client
       max-file-size: 5MB
@@ -87,7 +91,7 @@ concurrency:
 
 jobs:
   pr-checks:
-    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@v1
+    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@<sha> # v1.2.3
     with:
       shipped-prefixes: |
         src/
@@ -114,16 +118,53 @@ jobs:
   release:
     permissions:
       contents: write
-    uses: tpetrus/ci-workflows/.github/workflows/release.yml@v1
+    uses: tpetrus/ci-workflows/.github/workflows/release.yml@<sha> # v1.2.3
 ```
 
 ## Versioning
 
-`v1` is a floating major tag that this repo moves forward itself (via its own dogfooded `self-release.yml`) as long
-as changes stay backward-compatible. A breaking change gets a new major (`v2`) instead of moving `v1` onto it.
+`v0.1.0`, `v0.1.1`, and so on are the real semver tags, cut from this repo's own dogfooded `self-release.yml`.
+`v1`, `v2`, ... are floating major-alias tags: `v1` moves forward onto every new backward-compatible release, and a
+breaking change gets a new major (`v2`) instead of moving `v1` onto it. They're a resolution anchor for finding
+"what to pin to next," not something to write directly into a `uses:` line.
 
-Pin to `@v1`, not `@main` (tracks unreleased work on this repo) and not a bare commit SHA (never gets fixes).
-`v0.1.0`, `v0.1.1`, and so on are the real semver tags; `v1`, `v2`, ... are aliases that move.
+Pin a caller's `uses:` line to a commit SHA with a trailing version comment, the same convention this repo already
+uses for every third-party action it depends on:
+
+```yaml
+uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@<sha> # v1.2.3
+```
+
+not `@v1` directly, and not `@main` (tracks unreleased work on this repo). A floating tag — even a major alias —
+fails zizmor's/CodeQL's `unpinned-uses`/`unpinned-tag` check, since it can move to different code without the
+caller's `uses:` line changing; a bare commit SHA with no trailing comment is the same risk in the other direction
+(nothing records which release it came from, so nothing prompts you to look for a newer one). SHA-pinning with a
+version comment satisfies the scanner and keeps the version visible.
+
+To find `<sha>` for a given release, resolve the tag once (e.g.
+`gh api repos/tpetrus/ci-workflows/commits/v1.2.3 --jq .sha`, or `git rev-parse v1.2.3` against a local clone) and
+pin to that SHA directly; do not re-resolve `v1` on every run.
+
+SHA-pinning alone would otherwise mean manually bumping every caller by hand to pick up a fix. To keep that
+near-zero effort, add this repo's reusable workflows to the caller's own `.github/dependabot.yml`:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+```
+
+Dependabot already understands SHA-pinned actions and reusable workflows generically, including ones with a
+trailing version comment like the one above: it resolves the pin back to the tag it matches, checks for a newer
+tag, and opens a PR that updates both the SHA and the comment. No special-casing of this repo is needed in the
+caller's `dependabot.yml` beyond the generic `github-actions` ecosystem entry.
+
+`@main` remains reserved for this repo's own internal self-references (the four `self-*.yml` files, which
+deliberately dogfood unreleased HEAD against itself) — unaffected by this change, and still correctly
+zizmor-suppressed there with an inline `unpinned-uses` ignore and explanatory comment.
 
 ## One-time setup for `version-bump`/`release`
 
