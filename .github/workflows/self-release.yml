@@ -1,0 +1,19 @@
+name: Self release
+
+# Thin caller of this repo's own reusable release.yml. Trigger, concurrency and permissions mirror
+# AudioVisualizer-React's release.yml exactly: permissions must be granted here for the reusable workflow to use
+# them, and releases run one at a time, in push order, with a later push never cancelling one that is half-created.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: self-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: tpetrus/ci-workflows/.github/workflows/release.yml@main
