@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 5
     steps:
       # No node/npm needed for this job, so plain checkout replaces the full setup action here.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # pipx ships preinstalled on the ubuntu-latest image and runs zizmor from its own isolated venv, which
       # sidesteps the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's

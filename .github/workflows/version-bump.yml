@@ -65,7 +65,7 @@ jobs:
       # executed. No setup-node/npm-ci runs against this checkout, on purpose: the PR branch's own install/postinstall
       # scripts must never run in a job that holds the App token.
       - if: steps.actor.outputs.skip != 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -185,7 +185,7 @@ jobs:
       # plain checkout (not the `setup` action, which has no `path:` input) is used here, at an explicit path, so it
       # sits beside the release-cli-src checkout below rather than nested inside it -- nothing else in this job needs
       # the caller's own node_modules, since no local script runs against the caller's checkout any more.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: repo
@@ -198,7 +198,7 @@ jobs:
       # loop's repeated `git checkout -B pr-$number ...` swaps the *caller's* working tree, never this one, so the
       # release logic stays available and unaffected throughout.
       - name: Check out the release-cli source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tpetrus/ci-workflows
           ref: main
