@@ -2,7 +2,7 @@
 
 A shared, reusable CI/CD pipeline for my own projects — mostly Cloudflare Workers apps (static SPAs and similar)
 built with TypeScript, Vitest, Playwright, Lighthouse CI and size-limit. It is composite GitHub Actions, reusable
-GitHub Actions workflows, and two Node CLI scripts (release automation and a lockfile check). A caller gets all of
+GitHub Actions workflows, and a small Node CLI, `ci-tools` (release automation and a lockfile check). A caller gets all of
 it by referencing a handful of thin workflow files; the logic itself lives here, in one place.
 
 ## What's in here
@@ -27,6 +27,21 @@ Reusable workflows (`.github/workflows/*.yml`):
 | `codeql.yml` | CodeQL static analysis of JavaScript/TypeScript and of the workflow files themselves. |
 | `smoke.yml` | Runs the caller's `@smoke` Playwright tests against a live URL. Never deploys; only reports. |
 | `update-snapshots.yml` | Regenerates Playwright visual-regression baselines and commits them back to the given ref. |
+
+## The `ci-tools` CLI
+
+The TypeScript sources in `scripts/` are run in two different ways:
+
+- **Directly as `.ts`**, by the composite actions, `npm run check-lockfile` / `npm run release` and the specs. Node 24
+  strips the types itself, so none of these needs a build.
+- **As built JavaScript**, by the `ci-tools` bin, for example
+  `npx --yes github:tpetrus/ci-workflows#v1 ci-tools check-lockfile`. npx installs the package under a
+  `node_modules` directory, and Node refuses to strip types from `.ts` files there
+  (see [Type stripping in dependencies](https://nodejs.org/api/typescript.html#type-stripping-in-dependencies)),
+  so the bin points at `dist/bin.js`, emitted by `npm run build` (`tsc -p tsconfig.build.json`). `dist/` is not
+  committed: the `prepare` script builds it, and npm runs `prepare` both for `npm pack` and when installing from a
+  git spec. `npm run verify:pack` (run in `self-ci.yml` on Linux and Windows) packs the repo, installs the tarball
+  into a throwaway project and runs the bin from there, so a regression back to `.ts` fails CI.
 
 ## The caller contract
 
