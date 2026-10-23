@@ -10,6 +10,13 @@ inputs:
     description: Git ref to check out (passed through to actions/checkout). Empty uses actions/checkout's default.
     required: false
     default: ''
+  persist-credentials:
+    description: >-
+      Whether to leave the checkout credential on disk for a later git push (passed through to actions/checkout).
+      Most callers only read the repository, so this defaults to false; a caller that pushes a commit back (e.g.
+      update-snapshots.yml) must opt in explicitly.
+    required: false
+    default: 'false'
   npm-ci-args:
     description: Extra arguments appended to npm ci, e.g. --ignore-scripts.
     required: false
@@ -26,6 +33,7 @@ runs:
       with:
         fetch-depth: ${{ inputs['fetch-depth'] }}
         ref: ${{ inputs.ref }}
+        persist-credentials: ${{ inputs['persist-credentials'] }}
 
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
@@ -35,8 +43,12 @@ runs:
     # check-lockfile.ts lives at this action's own repo root (scripts/check-lockfile.ts), not in the caller's
     # checkout, so it must be run from github.action_path rather than a path relative to the caller's working
     # directory. This action lives at actions/setup/, so ../.. reaches that repo root.
-    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "${{ inputs['lockfile-path'] }}"
+    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "$LOCKFILE_PATH"
       shell: bash
+      env:
+        LOCKFILE_PATH: ${{ inputs['lockfile-path'] }}
 
-    - run: npm ci ${{ inputs['npm-ci-args'] }}
+    - run: npm ci $NPM_CI_ARGS
       shell: bash
+      env:
+        NPM_CI_ARGS: ${{ inputs['npm-ci-args'] }}

@@ -20,5 +20,7 @@ runs:
     # check-lockfile.ts lives at this action's own repo root (scripts/check-lockfile.ts), not in the caller's
     # checkout, so it must be run from github.action_path rather than a path relative to the caller's working
     # directory. This action lives at actions/check-lockfile/, so ../.. reaches that repo root.
-    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "${{ inputs['lockfile-path'] }}"
+    - run: node "${{ github.action_path }}/../../scripts/check-lockfile.ts" "$LOCKFILE_PATH"
       shell: bash
+      env:
+        LOCKFILE_PATH: ${{ inputs['lockfile-path'] }}
