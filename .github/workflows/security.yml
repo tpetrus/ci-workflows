@@ -13,6 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - run: echo "CANARY_WORKFLOW_SHA=$WF_SHA workflow_ref=$WF_REF workflow_repository=$WF_REPO caller_sha=$CALLER_SHA"
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          WF_REF: ${{ job.workflow_ref }}
+          WF_REPO: ${{ job.workflow_repository }}
+          CALLER_SHA: ${{ github.sha }}
+
       - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       # Production dependencies are what ships to users, so high/critical advisories block.
