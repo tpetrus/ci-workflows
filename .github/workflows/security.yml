@@ -20,6 +20,14 @@ jobs:
           WF_REPO: ${{ job.workflow_repository }}
           CALLER_SHA: ${{ github.sha }}
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: release-cli-src
+          persist-credentials: false
+      - run: git -C release-cli-src log -1 --format="CANARY_CHECKOUT_HEAD=%H" && ls release-cli-src/scripts/release | head -3
+
       - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       # Production dependencies are what ships to users, so high/critical advisories block.
