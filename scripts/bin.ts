@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Dispatches to the sub-tools in this repo, so it can be run via `npx github:tpetrus/ci-workflows#v1 <command>`
-// (through the `ci-tools` bin in package.json). The logic lives in check-lockfile.ts and release/commands.ts; this
-// file only does process I/O, the same split release/cli.ts uses for the release sub-tool alone.
+// Dispatches to the sub-tools in this repo, so it can be run via
+// `npx --yes --package=github:tpetrus/ci-workflows#vX.Y.Z ci-tools <command>` (through the `ci-tools` bin in
+// package.json; --package is needed because the package has a single bin, so without it npx would pass `ci-tools` as
+// an argument). The logic lives in check-lockfile.ts and release/commands.ts; this file only does process I/O, the
+// same split release/cli.ts uses for the release sub-tool alone.
 import { checkLockfile } from './check-lockfile.ts';
 import { runCommand } from './release/commands.ts';
 

@@ -36,6 +36,14 @@ jobs:
           # Both languages are interpreted, so no build is needed.
           build-mode: none
           queries: security-extended
+          # actions/unpinned-tag duplicates zizmor's unpinned-uses audit (see security.yml), which is the single
+          # pinning gate here: it enforces this repo's policy (hash-pin third parties, exact-tag pin tpetrus/*), which
+          # CodeQL's blanket "pin to a SHA" rule contradicts. Excluding the query closes its existing alerts on the
+          # next analysis. security-extended above is kept.
+          config: |
+            query-filters:
+              - exclude:
+                  id: actions/unpinned-tag
 
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:

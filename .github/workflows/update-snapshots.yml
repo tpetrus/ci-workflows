@@ -35,7 +35,7 @@ jobs:
     outputs:
       version: ${{ steps.playwright.outputs.version }}
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       - name: Read the installed Playwright version
         id: playwright
@@ -58,7 +58,7 @@ jobs:
       options: --ipc=host
     steps:
       # The commit-and-push step below needs the credential this leaves behind; see persist-credentials there.
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           persist-credentials: true
 
