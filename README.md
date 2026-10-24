@@ -35,15 +35,21 @@ The TypeScript sources in `scripts/` are run in two different ways:
 - **Directly as `.ts`**, by the composite actions, `npm run check-lockfile` / `npm run release` and the specs. Node 24
   strips the types itself, so none of these needs a build.
 - **As built JavaScript**, by the `ci-tools` bin, for example
-  `npx --yes github:tpetrus/ci-workflows#v1 check-lockfile`. The package has a single bin, so npx runs it
+  `npx --yes github:tpetrus/ci-workflows#v1.2.3 check-lockfile`. The package has a single bin, so npx runs it
   directly and the sub-tool follows the package spec (repeating `ci-tools` there is passed through as an unknown
-  sub-tool and prints usage; `npx --package=github:tpetrus/ci-workflows#v1 ci-tools ...` is the explicit form). npx installs the package under a
+  sub-tool and prints usage; `npx --package=github:tpetrus/ci-workflows#v1.2.3 ci-tools ...` is the explicit form).
+  Always use an exact `#vX.Y.Z` release tag in the ref (see [Versioning](#versioning)), never `#v1` or `#main`.
+  npx installs the package under a
   `node_modules` directory, and Node refuses to strip types from `.ts` files there
   (see [Type stripping in dependencies](https://nodejs.org/api/typescript.html#type-stripping-in-dependencies)),
   so the bin points at `dist/bin.js`, emitted by `npm run build` (`tsc -p tsconfig.build.json`). `dist/` is not
   committed: the `prepare` script builds it, and npm runs `prepare` both for `npm pack` and when installing from a
   git spec. `npm run verify:pack` (run in `self-ci.yml` on Linux and Windows) packs the repo, installs the tarball
   into a throwaway project and runs the bin from there, so a regression back to `.ts` fails CI.
+
+A `package.json` script that runs the CLI through npx carries its own `#vX.Y.Z` ref. Dependabot does not update that
+ref: it only sees `uses:` lines, not npx specs inside a script. Until the CLI is published to a registry, bump it by
+hand in the same change that bumps the `uses:` refs to the same release.
 
 ## The caller contract
 
@@ -59,13 +65,12 @@ stay in the caller's own repo. This repo only orchestrates them; it doesn't own 
 ## Example
 
 A caller references this repo's workflows with
-`uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@<sha> # <version>` — see
-[Versioning](#versioning) below for why a SHA, not `@v1`, is what actually goes in a `uses:` line. These three
-examples are adapted from this repo's own `self-pr-checks.yml` and `self-release.yml` (which call `@main` since
-they dogfood this repo against itself), plus a `node-ci.yml` caller built from that workflow's own declared
-inputs — generalized here for a typical caller instead of a self-reference. Replace `<sha>` in each example below
-with the real commit SHA for the version you're pinning to (see [Versioning](#versioning)); these examples use a
-placeholder since no fixed SHA stays accurate as this repo releases new versions.
+`uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@vX.Y.Z`, an exact release tag; see
+[Versioning](#versioning) below. These three examples are adapted from this repo's own `self-pr-checks.yml` and
+`self-release.yml` (which call `@main` since they dogfood this repo against itself), plus a `node-ci.yml` caller built
+from that workflow's own declared inputs, generalized here for a typical caller instead of a self-reference. Replace
+`v1.2.3` in each example with the release you're pinning to; no fixed tag stays current as this repo releases new
+versions.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -85,7 +90,7 @@ permissions:
 
 jobs:
   ci:
-    uses: tpetrus/ci-workflows/.github/workflows/node-ci.yml@<sha> # v1.2.3
+    uses: tpetrus/ci-workflows/.github/workflows/node-ci.yml@v1.2.3
     with:
       build-dir: build/client
       max-file-size: 5MB
@@ -108,7 +113,7 @@ concurrency:
 
 jobs:
   pr-checks:
-    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@<sha> # v1.2.3
+    uses: tpetrus/ci-workflows/.github/workflows/pr-checks.yml@v1.2.3
     with:
       shipped-prefixes: |
         src/
@@ -135,35 +140,29 @@ jobs:
   release:
     permissions:
       contents: write
-    uses: tpetrus/ci-workflows/.github/workflows/release.yml@<sha> # v1.2.3
+    uses: tpetrus/ci-workflows/.github/workflows/release.yml@v1.2.3
 ```
 
 ## Versioning
 
-`v0.1.0`, `v0.1.1`, and so on are the real semver tags, cut from this repo's own dogfooded `self-release.yml`.
-`v1`, `v2`, ... are floating major-alias tags: `v1` moves forward onto every new backward-compatible release, and a
-breaking change gets a new major (`v2`) instead of moving `v1` onto it. They're a resolution anchor for finding
-"what to pin to next," not something to write directly into a `uses:` line.
-
-Pin a caller's `uses:` line to a commit SHA with a trailing version comment, the same convention this repo already
-uses for every third-party action it depends on:
+Releases are cut from this repo's own dogfooded `self-release.yml` as exact semver tags (`v0.1.4`, ...). Callers pin
+to one of them:
 
 ```yaml
-uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@<sha> # v1.2.3
+uses: tpetrus/ci-workflows/.github/workflows/<name>.yml@v1.2.3
 ```
 
-not `@v1` directly, and not `@main` (tracks unreleased work on this repo). A floating tag — even a major alias —
-fails zizmor's/CodeQL's `unpinned-uses`/`unpinned-tag` check, since it can move to different code without the
-caller's `uses:` line changing; a bare commit SHA with no trailing comment is the same risk in the other direction
-(nothing records which release it came from, so nothing prompts you to look for a newer one). SHA-pinning with a
-version comment satisfies the scanner and keeps the version visible.
+- **Tags are never moved.** Nobody re-points a tag, so a given `@vX.Y.Z` always runs the same workflow file.
+- **Releases are immutable** from the first release cut after immutable releases were enabled on this repo
+  (`v0.1.4` onward): GitHub then locks the release's tag and assets against edits and deletion. `v0.1.0` through
+  `v0.1.3` predate that setting and stay mutable; they were not republished.
+- **`v1` is a legacy tag**, kept only so old references to it don't break. It is not maintained, does not move and is
+  not something to pin to. Do not use `@v1` or `@main` (unreleased work) in a caller.
+- Third-party actions stay pinned by commit SHA with a trailing version comment; only this repo's own refs use tags.
 
-To find `<sha>` for a given release, resolve the tag once (e.g.
-`gh api repos/tpetrus/ci-workflows/commits/v1.2.3 --jq .sha`, or `git rev-parse v1.2.3` against a local clone) and
-pin to that SHA directly; do not re-resolve `v1` on every run.
+### Keeping callers current
 
-SHA-pinning alone would otherwise mean manually bumping every caller by hand to pick up a fix. To keep that
-near-zero effort, add this repo's reusable workflows to the caller's own `.github/dependabot.yml`:
+Add the `github-actions` ecosystem to the caller's `.github/dependabot.yml`:
 
 ```yaml
 version: 2
@@ -174,21 +173,45 @@ updates:
       interval: weekly
 ```
 
-Dependabot already understands SHA-pinned actions and reusable workflows generically, including ones with a
-trailing version comment like the one above: it resolves the pin back to the tag it matches, checks for a newer
-tag, and opens a PR that updates both the SHA and the comment. No special-casing of this repo is needed in the
-caller's `dependabot.yml` beyond the generic `github-actions` ecosystem entry.
+Dependabot bumps exact-tag reusable-workflow refs. It only considers tags with the same precision as the pinned ref
+(`tags_matching_pinned_precision` in dependabot-core's `github_actions/.../latest_version_finder.rb`), so `@v0.1.3`
+moves to `v0.1.4` and the two-part `v1` is ignored. A bump PR changes the `uses:` refs only; also bump any npx ref in
+a `package.json` script by hand (see [The `ci-tools` CLI](#the-ci-tools-cli)).
 
-`@main` remains reserved for this repo's own internal self-references (the four `self-*.yml` files, which
-deliberately dogfood unreleased HEAD against itself) — unaffected by this change, and still correctly
-zizmor-suppressed there with an inline `unpinned-uses` ignore and explanatory comment.
+### Scanner configuration in the caller
+
+zizmor's default `unpinned-uses` policy wants a commit hash for everything, so a tag ref to this repo is flagged.
+Allow ref-pins for this repo and keep hash-pins for everyone else in the caller's `.github/zizmor.yml`:
+
+```yaml
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "tpetrus/*": ref-pin
+        "*": hash-pin
+```
+
+The shared `security.yml` zizmor job runs `zizmor .github/` in the caller's checkout, so the caller's
+`.github/zizmor.yml` is discovered automatically.
+
+CodeQL's `actions/unpinned-tag` query (in the security-extended suite) will still raise medium-severity alerts for
+these refs: its only trusted owners are `actions`, `github` and `advanced-security`. Dismiss them in the caller as
+accepted risk (the tags are immutable releases of a first-party repo), or exclude the query.
 
 ## One-time setup for `version-bump`/`release`
 
 A caller that wants the automated-semver-from-PR-title system (`version-bump.yml` + `release.yml`) needs to:
 
 1. Install the GitHub App used for this (the same one already installed elsewhere, or a new one) on the caller's
-   repo.
+   repo, with these repository permissions:
+   - **Contents: Read and write** (both `version-bump.yml` jobs push commits).
+   - **Pull requests: Read** (the `sync-prs` job lists each branch's open pull request).
+   - **Issues: Read and write** (the `sync-prs` job posts its conflict notice through the issues comment endpoint).
+
+   `sync-prs` requests all three for its token, and GitHub rejects a token request for a permission the installation
+   lacks: `The permissions requested are not granted to this installation.` Add Issues to the App, then accept the
+   updated permissions on each installation.
 2. Add `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` as secrets in both Settings → Secrets → Actions and
    Settings → Secrets → Dependabot (Dependabot-triggered runs only read the latter).
 3. Require the `pr-title` and `version` checks (from `pr-checks.yml`), plus `node-ci.yml`'s `result` aggregator job,
