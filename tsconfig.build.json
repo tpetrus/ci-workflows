@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  // Emits the JavaScript that the published `ci-tools` bin runs. The sources are run directly as .ts everywhere
+  // inside this repo (composite actions, npm scripts, vitest), but Node refuses to strip types from .ts files under
+  // node_modules, which is where npx installs this package, so the bin has to be plain JavaScript.
+  "include": ["scripts/**/*"],
+  // Specs and the pack check are repo-internal; none of them belongs in the published package.
+  "exclude": ["node_modules", "scripts/**/*.test.ts", "scripts/verifyPackedCli.ts"],
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "scripts",
+    // The sources import siblings as './x.ts' (what Node needs when it runs them directly); this rewrites those to
+    // './x.js' in the emitted files, which is what Node needs when it runs the output.
+    "rewriteRelativeImportExtensions": true
+  }
+}
