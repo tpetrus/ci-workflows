@@ -29,12 +29,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - run: echo "CANARY_MARKER_7f3a9c action_path=$GITHUB_ACTION_PATH action_ref=$ACTION_REF action_repository=$ACTION_REPO"
-      shell: bash
-      env:
-        ACTION_REF: ${{ github.action_ref }}
-        ACTION_REPO: ${{ github.action_repository }}
-
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         fetch-depth: ${{ inputs['fetch-depth'] }}
