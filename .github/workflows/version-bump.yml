@@ -116,7 +116,7 @@ jobs:
         id: expected-version
         if: steps.actor.outputs.skip != 'true'
         continue-on-error: true
-        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+        uses: $/actions/release-cli # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           command: expected-version
           args: |
@@ -151,7 +151,7 @@ jobs:
       # directly. --dir is omitted: the PR branch was checked out at the job's default working directory.
       - name: Write the version
         if: steps.actor.outputs.skip != 'true' && steps.compare.outputs.needed == 'true'
-        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+        uses: $/actions/release-cli # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           command: write-version
           args: |
@@ -208,16 +208,18 @@ jobs:
           persist-credentials: true
 
       # The release-cli action cannot be invoked from inside the shell loop below (a composite action is a workflow
-      # step, not a shell command), so its source is checked out here instead, at the same trusted, maintainer-only
-      # ref the action itself uses. Unlike AV's "copy scripts/release to $RUNNER_TEMP and symlink node_modules"
-      # workaround, this is an independent checkout, sitting beside (not inside) the caller's own checkout above: the
-      # loop's repeated `git checkout -B pr-$number ...` swaps the *caller's* working tree, never this one, so the
-      # release logic stays available and unaffected throughout.
+      # step, not a shell command), so its source is checked out here instead, at the same commit the action itself
+      # runs at: job.workflow_sha is the commit of this reusable workflow file (not the caller's), so it matches what
+      # `$/actions/release-cli` resolves to, and job.workflow_repository is this repo, not the caller's. Unlike AV's
+      # "copy scripts/release to $RUNNER_TEMP and symlink node_modules" workaround, this is an independent checkout,
+      # sitting beside (not inside) the caller's own checkout above: the loop's repeated
+      # `git checkout -B pr-$number ...` swaps the *caller's* working tree, never this one, so the release logic
+      # stays available and unaffected throughout.
       - name: Check out the release-cli source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: tpetrus/ci-workflows
-          ref: main
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: release-cli-src
           persist-credentials: false
 

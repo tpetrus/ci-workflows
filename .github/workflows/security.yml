@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       # Production dependencies are what ships to users, so high/critical advisories block.
       - name: Audit production dependencies
@@ -37,7 +37,7 @@ jobs:
       # Needed to post the summary comment when the check fails.
       pull-requests: write
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
@@ -58,6 +58,8 @@ jobs:
       # pipx ships preinstalled on the ubuntu-latest image and runs zizmor from its own isolated venv, which
       # sidesteps the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's
       # system Python. zizmor exits non-zero as soon as it reports any finding, so no extra flag is needed to fail
-      # the job on a finding.
+      # the job on a finding. The version is pinned exactly so a new zizmor release (with new audits) can never turn
+      # a caller's CI red unannounced; Dependabot cannot track a version inside a run: string, so bump it by hand
+      # (see the README's zizmor note) after reading the release notes.
       - name: Scan workflows with zizmor
-        run: pipx run zizmor .github/
+        run: pipx run zizmor==1.30.1 .github/

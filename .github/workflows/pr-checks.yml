@@ -49,7 +49,7 @@ jobs:
             echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/release-cli # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           command: check-title
           args: |
@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # Full history, because the base and head are compared with `git diff base...head`.
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           fetch-depth: '0'
           npm-ci-args: --ignore-scripts
@@ -110,7 +110,7 @@ jobs:
       # the title) it is fine to reference directly here.
       - name: Determine the expected version
         id: expected-version
-        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+        uses: $/actions/release-cli # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           command: expected-version
           args: |
@@ -129,11 +129,17 @@ jobs:
           PACKAGE_VERSION: ${{ steps.gather.outputs.package-version }}
           LOCK_VERSION: ${{ steps.gather.outputs.lock-version }}
           LOCK_ROOT_VERSION: ${{ steps.gather.outputs.lock-root-version }}
+          # job.workflow_ref is the reusable workflow file's own ref, e.g.
+          # owner/repo/.github/workflows/x.yml@refs/tags/vX.Y.Z (not the caller's), so it names the release the
+          # caller pinned. Passed through env, never interpolated into run:.
+          WORKFLOW_REF: ${{ job.workflow_ref }}
         run: |
           set -uo pipefail
           expected="${EXPECTED%$'\n'}"
           status=0
-          hint="The version bot normally sets this itself; if it has not run yet, wait for it or run: npx github:tpetrus/ci-workflows#main release write-version $expected"
+          # Keep what follows the "@refs/tags/" or "@refs/heads/" prefix, e.g. v0.1.4.
+          pinned_ref="${WORKFLOW_REF#*@refs/*/}"
+          hint="The version bot normally sets this itself; if it has not run yet, wait for it or run: npx --yes --package=github:tpetrus/ci-workflows#$pinned_ref ci-tools release write-version $expected"
           check() {
             if [ "$2" != "$expected" ]; then
               echo "::error::$1 is $2 but this PR must set $expected (base is $BASE_VERSION). $hint"
@@ -184,7 +190,7 @@ jobs:
       - name: Check that shipped inputs are covered
         id: check-shipped
         continue-on-error: true
-        uses: tpetrus/ci-workflows/actions/release-cli@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+        uses: $/actions/release-cli # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
         with:
           command: check-shipped
           args: ${{ steps.shipped-args.outputs.value }}

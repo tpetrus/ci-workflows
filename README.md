@@ -200,6 +200,20 @@ Every workflow and action here is scanned by `actionlint` and `zizmor` on every 
 third-party actions are pinned by commit SHA; untrusted event data (PR titles, branch names, etc.) is always routed
 through environment variables and step outputs, never interpolated directly into a shell script.
 
+This repo's workflows reference its own composite actions with GitHub's self repository reference
+(`uses: $/actions/setup`, [docs](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)),
+which resolves at the commit of the workflow file using it. A caller pinned to `@vX.Y.Z` therefore runs that release's
+actions, not whatever is on `main`. It is not available on GitHub Enterprise Server. actionlint (1.7.12, the latest
+release) cannot parse it yet, so `self-ci.yml` ignores exactly that message.
+
+`codeql.yml` excludes the `actions/unpinned-tag` query: zizmor's `unpinned-uses` audit (in `security.yml`) is the single
+pinning gate, since CodeQL's rule would flag the exact-tag pins of `tpetrus/*` workflows that this policy allows.
+`actions/unpinned-tag` alerts already open in a caller close on the caller's next CodeQL analysis.
+
+zizmor is pinned to an exact version in `security.yml` and `self-ci.yml` (`pipx run zizmor==X.Y.Z`). Dependabot cannot
+track a version inside a `run:` string, so bump it deliberately in both files: read the release notes for new or
+changed audits, and prefer a release that has been out for at least two weeks.
+
 ## License
 
 [MIT](LICENSE)

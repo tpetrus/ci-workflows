@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # Checks out the repo, sets up Node from .nvmrc, checks the lockfile and runs npm ci.
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       - run: npm run typecheck
 
@@ -46,7 +46,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: tpetrus/ci-workflows/actions/setup@main # zizmor: ignore[unpinned-uses] self-reference to this repo's own action, not a third party; GitHub's "$/" syntax would pin this implicitly but actionlint 1.7.12 can't parse it yet, so @main stays until it can
+      - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
       - run: npm run verify:pack
 
@@ -69,8 +69,21 @@ jobs:
       # action.yml path as a direct CLI argument (per its own docs: "it is not supported to specify action.yml
       # directly via command line arguments"), so actions/*/action.yml is covered by the zizmor job below instead,
       # not here.
+      #
+      # -ignore: actionlint 1.7.12 (the latest release) predates two things this repo now uses, and both are
+      # rejected as errors. Each pattern matches only its one message, so every other actionlint finding still
+      # fails the job. Drop each once a release supports it.
+      #  - GitHub's `$/` self repository reference: `uses: $/actions/...` is reported as "invalid format because ref
+      #    is missing" (upstream rhysd/actionlint#711 and #732, open). `$/` is deliberate: it makes a composite action
+      #    resolve at the commit of the workflow file using it, so a caller pinned to a release tag runs that
+      #    release's actions rather than whatever is on main.
+      #  - The job.workflow_repository / job.workflow_sha / job.workflow_ref properties of the job context, missing
+      #    from actionlint's context schema (upstream rhysd/actionlint#671, open).
       - name: Run actionlint
-        run: ./actionlint -color
+        run: |
+          ./actionlint -color \
+            -ignore 'specifying action "\$/actions/[a-z-]+" in invalid format because ref is missing' \
+            -ignore 'property "workflow_(repository|sha|ref)" is not defined in object type'
 
   zizmor:
     name: zizmor
@@ -85,6 +98,8 @@ jobs:
       # the "externally-managed-environment" restriction a plain `pip install` hits on Ubuntu 24.04's system Python.
       # Scans both the workflows and the composite actions: this is the one workflow in the whole system that sees
       # the actual reusable-workflow and composite-action logic, not just a thin caller of it. zizmor exits non-zero
-      # as soon as it reports any finding, so no extra flag is needed to fail the job on a finding.
+      # as soon as it reports any finding, so no extra flag is needed to fail the job on a finding. The version is
+      # pinned exactly (keep in step with security.yml); Dependabot cannot track a version inside a run: string, so
+      # bump it by hand after reading the release notes.
       - name: Scan workflows and actions with zizmor
-        run: pipx run zizmor .github/workflows actions
+        run: pipx run zizmor==1.30.1 .github/workflows actions
