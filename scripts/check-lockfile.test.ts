@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { checkLockfile, findMissingBundledEntries } from './check-lockfile.ts';
+import { checkLockfile, findBundlersWithMissingEntries, findMissingBundledEntries } from './check-lockfile.ts';
 import type { Lockfile } from './check-lockfile.ts';
 
 describe('findMissingBundledEntries', () => {
@@ -42,6 +42,21 @@ describe('findMissingBundledEntries', () => {
     });
 });
 
+describe('findBundlersWithMissingEntries', () => {
+    it('maps each incomplete bundler to its missing children and leaves complete ones out', () => {
+        const lock: Lockfile = {
+            packages: {
+                '': {},
+                'node_modules/incomplete': { bundleDependencies: ['a', 'b'] },
+                'node_modules/incomplete/node_modules/a': {},
+                'node_modules/complete': { bundleDependencies: ['c'] },
+                'node_modules/complete/node_modules/c': {},
+            },
+        };
+        expect(findBundlersWithMissingEntries(lock)).toEqual(new Map([['node_modules/incomplete', ['node_modules/incomplete/node_modules/b']]]));
+    });
+});
+
 describe('checkLockfile', () => {
     let dir: string;
 
@@ -70,6 +85,7 @@ describe('checkLockfile', () => {
         expect(result.code).toBe(1);
         expect(result.stderr).toContain('is missing 1 bundled dependency entry');
         expect(result.stderr).toContain('node_modules/pkg/node_modules/dep');
+        expect(result.stderr).toContain('ci-tools repair-lockfile');
     });
 
     it('passes a complete lockfile', () => {

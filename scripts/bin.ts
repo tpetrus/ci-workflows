@@ -2,15 +2,18 @@
 // Dispatches to the sub-tools in this repo, so it can be run via
 // `npx --yes --package=github:tpetrus/ci-workflows#vX.Y.Z ci-tools <command>` (through the `ci-tools` bin in
 // package.json; --package is needed because the package has a single bin, so without it npx would pass `ci-tools` as
-// an argument). The logic lives in check-lockfile.ts and release/commands.ts; this file only does process I/O, the
-// same split release/cli.ts uses for the release sub-tool alone.
+// an argument). The logic lives in check-lockfile.ts, repair-lockfile.ts and release/commands.ts; this file only does
+// process I/O, the same split release/cli.ts uses for the release sub-tool alone.
 import { checkLockfile } from './check-lockfile.ts';
+import { repairLockfile } from './repair-lockfile.ts';
 import { runCommand } from './release/commands.ts';
 
 const USAGE = `Usage: ci-tools <sub-tool> [args]
 
 Sub-tools:
   check-lockfile [path/to/package-lock.json]   Fail if the lockfile is missing bundled dependency entries.
+  repair-lockfile [path/to/package-lock.json]  Add the bundled dependency entries npm dropped, from the registry
+                                                 tarballs of the packages that bundle them (data only).
   release <command> [options]                  Run a release command (node scripts/release/cli.ts with no
                                                  arguments prints its own usage).
 `;
@@ -20,10 +23,12 @@ const [subTool, ...rest] = process.argv.slice(2);
 const { code, stdout, stderr } =
     subTool === 'check-lockfile'
         ? checkLockfile(rest)
-        : subTool === 'release'
-          ? runCommand(rest)
-          // No sub-tool is a plain request for help; an unknown one is a mistake in the caller.
-          : { code: subTool === undefined ? 0 : 2, stdout: '', stderr: USAGE };
+        : subTool === 'repair-lockfile'
+          ? await repairLockfile(rest)
+          : subTool === 'release'
+            ? runCommand(rest)
+            // No sub-tool is a plain request for help; an unknown one is a mistake in the caller.
+            : { code: subTool === undefined ? 0 : 2, stdout: '', stderr: USAGE };
 
 process.stdout.write(stdout);
 process.stderr.write(stderr);
