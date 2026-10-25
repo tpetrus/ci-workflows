@@ -1,6 +1,6 @@
 {
   "name": "ci-workflows",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": false,
   "type": "module",
   "engines": {
@@ -18,7 +18,9 @@
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "verify:pack": "node scripts/verifyPackedCli.ts",
+    "verify:repair": "node scripts/verifyRealRepair.ts",
     "check-lockfile": "node scripts/check-lockfile.ts",
+    "repair-lockfile": "node scripts/repair-lockfile.ts",
     "release": "node scripts/release/cli.ts"
   },
   "dependencies": {

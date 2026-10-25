@@ -1,0 +1,324 @@
+{
+  "node_modules/@emnapi/core": {
+    "name": "@emnapi/core",
+    "version": "1.11.1",
+    "description": "emnapi core",
+    "main": "index.js",
+    "module": "./dist/emnapi-core.esm-bundler.js",
+    "types": "./dist/emnapi-core.d.ts",
+    "sideEffects": false,
+    "exports": {
+      ".": {
+        "types": {
+          "module": "./dist/emnapi-core.d.ts",
+          "import": "./dist/emnapi-core.d.mts",
+          "default": "./dist/emnapi-core.d.ts"
+        },
+        "module": "./dist/emnapi-core.esm-bundler.js",
+        "import": "./dist/emnapi-core.mjs",
+        "default": "./index.js"
+      },
+      "./dist/emnapi-core.cjs.min": {
+        "types": "./dist/emnapi-core.d.ts",
+        "default": "./dist/emnapi-core.cjs.min.js"
+      },
+      "./dist/emnapi-core.min.mjs": {
+        "types": "./dist/emnapi-core.d.mts",
+        "default": "./dist/emnapi-core.min.mjs"
+      }
+    },
+    "dependencies": {
+      "@emnapi/wasi-threads": "1.2.2",
+      "tslib": "^2.4.0"
+    },
+    "scripts": {
+      "build": "node ./script/build.js"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/toyobayashi/emnapi.git"
+    },
+    "author": "toyobayashi",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/toyobayashi/emnapi/issues"
+    },
+    "homepage": "https://github.com/toyobayashi/emnapi#readme",
+    "publishConfig": {
+      "access": "public"
+    }
+  },
+  "node_modules/@emnapi/runtime": {
+    "name": "@emnapi/runtime",
+    "version": "1.11.1",
+    "description": "emnapi runtime",
+    "main": "index.js",
+    "module": "./dist/emnapi.esm-bundler.js",
+    "types": "./dist/emnapi.d.ts",
+    "sideEffects": false,
+    "exports": {
+      ".": {
+        "types": {
+          "module": "./dist/emnapi.d.ts",
+          "import": "./dist/emnapi.d.mts",
+          "default": "./dist/emnapi.d.ts"
+        },
+        "module": "./dist/emnapi.esm-bundler.js",
+        "import": "./dist/emnapi.mjs",
+        "default": "./index.js"
+      },
+      "./dist/emnapi.cjs.min": {
+        "types": "./dist/emnapi.d.ts",
+        "default": "./dist/emnapi.cjs.min.js"
+      },
+      "./dist/emnapi.min.mjs": {
+        "types": "./dist/emnapi.d.mts",
+        "default": "./dist/emnapi.min.mjs"
+      }
+    },
+    "dependencies": {
+      "tslib": "^2.4.0"
+    },
+    "scripts": {
+      "build": "node ./script/build.js"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/toyobayashi/emnapi.git"
+    },
+    "author": "toyobayashi",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/toyobayashi/emnapi/issues"
+    },
+    "homepage": "https://github.com/toyobayashi/emnapi#readme",
+    "publishConfig": {
+      "access": "public"
+    }
+  },
+  "node_modules/@emnapi/wasi-threads": {
+    "name": "@emnapi/wasi-threads",
+    "version": "1.2.2",
+    "description": "WASI threads proposal implementation in JavaScript",
+    "main": "index.js",
+    "module": "./dist/wasi-threads.esm-bundler.js",
+    "types": "./dist/wasi-threads.d.ts",
+    "sideEffects": false,
+    "exports": {
+      ".": {
+        "types": {
+          "module": "./dist/wasi-threads.d.ts",
+          "import": "./dist/wasi-threads.d.mts",
+          "default": "./dist/wasi-threads.d.ts"
+        },
+        "module": "./dist/wasi-threads.esm-bundler.js",
+        "import": "./dist/wasi-threads.mjs",
+        "default": "./index.js"
+      },
+      "./dist/wasi-threads.cjs.min": {
+        "types": "./dist/wasi-threads.d.ts",
+        "default": "./dist/wasi-threads.cjs.min.js"
+      },
+      "./dist/wasi-threads.min.mjs": {
+        "types": "./dist/wasi-threads.d.mts",
+        "default": "./dist/wasi-threads.min.mjs"
+      }
+    },
+    "dependencies": {
+      "tslib": "^2.4.0"
+    },
+    "scripts": {
+      "build": "node ./script/build.js",
+      "build:test": "node ./test/build.js",
+      "test": "node ./test/index.js"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/toyobayashi/emnapi.git"
+    },
+    "author": "toyobayashi",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/toyobayashi/emnapi/issues"
+    },
+    "homepage": "https://github.com/toyobayashi/emnapi#readme",
+    "publishConfig": {
+      "access": "public"
+    }
+  },
+  "node_modules/@napi-rs/wasm-runtime": {
+    "name": "@napi-rs/wasm-runtime",
+    "version": "1.1.4",
+    "type": "module",
+    "description": "Runtime and polyfill for wasm targets",
+    "homepage": "https://napi.rs/",
+    "author": {
+      "name": "LongYinan",
+      "url": "https://github.com/Brooooooklyn"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/napi-rs/napi-rs.git",
+      "directory": "wasm-runtime"
+    },
+    "license": "MIT",
+    "publishConfig": {
+      "registry": "https://registry.npmjs.org/",
+      "access": "public"
+    },
+    "files": [
+      "runtime.cjs",
+      "runtime.js",
+      "fs-proxy.js",
+      "dist/*.cjs",
+      "dist/*.js"
+    ],
+    "devDependencies": {
+      "@rollup/plugin-alias": "^6.0.0",
+      "@rollup/plugin-commonjs": "^29.0.0",
+      "@rollup/plugin-inject": "^5.0.5",
+      "@rollup/plugin-json": "^6.1.0",
+      "@rollup/plugin-node-resolve": "^16.0.3",
+      "@rollup/plugin-replace": "^6.0.3",
+      "buffer": "^6.0.3",
+      "events": "^3.3.0",
+      "memfs": "^4.50.0",
+      "node-inspect-extracted": "^3.2.2",
+      "path-browserify": "^1.0.1",
+      "process": "^0.11.10",
+      "readable-stream": "^4.7.0",
+      "rollup": "^4.53.1",
+      "rollup-plugin-polyfill-node": "^0.13.0",
+      "tslib": "^2.8.1"
+    },
+    "dependencies": {
+      "@tybys/wasm-util": "^0.10.1"
+    },
+    "peerDependencies": {
+      "@emnapi/core": "^1.7.1",
+      "@emnapi/runtime": "^1.7.1"
+    },
+    "scripts": {
+      "build": "rollup -c rollup.config.js",
+      "test": "node --test"
+    },
+    "funding": {
+      "type": "github",
+      "url": "https://github.com/sponsors/Brooooooklyn"
+    },
+    "exports": {
+      ".": {
+        "import": "./runtime.js",
+        "require": "./runtime.cjs"
+      },
+      "./fs": {
+        "import": "./dist/fs.js"
+      }
+    }
+  },
+  "node_modules/@tybys/wasm-util": {
+    "name": "@tybys/wasm-util",
+    "version": "0.10.2",
+    "description": "WASI polyfill for browser and some wasm util",
+    "main": "./lib/cjs/index.js",
+    "module": "./dist/wasm-util.esm-bundler.js",
+    "types": "./dist/wasm-util.d.ts",
+    "exports": {
+      ".": {
+        "module": "./dist/wasm-util.esm-bundler.js",
+        "import": "./lib/mjs/index.mjs",
+        "require": "./lib/cjs/index.js",
+        "types": "./dist/wasm-util.d.ts"
+      }
+    },
+    "scripts": {
+      "build": "tsgo build",
+      "watch": "tsgo watch",
+      "test": "jest",
+      "lint": "eslint ./src/**/*.{ts,js} --fix",
+      "prepare": "npm run build"
+    },
+    "publishConfig": {
+      "access": "public"
+    },
+    "keywords": [
+      "wasm",
+      "webassembly",
+      "wasi",
+      "polyfill"
+    ],
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/toyobayashi/wasm-util.git"
+    },
+    "author": "toyobayashi",
+    "license": "MIT",
+    "dependencies": {
+      "tslib": "^2.4.0"
+    },
+    "devDependencies": {
+      "@tybys/ts-transform-module-specifier": "^0.0.2",
+      "@tybys/ts-transform-pure-class": "^0.1.1",
+      "@tybys/tsgo": "^1.1.0",
+      "@types/node": "^14.14.31",
+      "@typescript-eslint/eslint-plugin": "^5.40.1",
+      "@typescript-eslint/parser": "^5.40.1",
+      "eslint": "^8.25.0",
+      "eslint-config-standard-with-typescript": "^23.0.0",
+      "eslint-plugin-import": "^2.26.0",
+      "eslint-plugin-n": "^15.3.0",
+      "eslint-plugin-promise": "^6.1.0",
+      "memfs-browser": "^3.4.13000",
+      "mocha": "^10.1.0",
+      "ts-node": "^10.9.1",
+      "typescript": "~4.8.3"
+    }
+  },
+  "node_modules/tslib": {
+    "name": "tslib",
+    "author": "Microsoft Corp.",
+    "homepage": "https://www.typescriptlang.org/",
+    "version": "2.8.1",
+    "license": "0BSD",
+    "description": "Runtime library for TypeScript helper functions",
+    "keywords": [
+      "TypeScript",
+      "Microsoft",
+      "compiler",
+      "language",
+      "javascript",
+      "tslib",
+      "runtime"
+    ],
+    "bugs": {
+      "url": "https://github.com/Microsoft/TypeScript/issues"
+    },
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/Microsoft/tslib.git"
+    },
+    "main": "tslib.js",
+    "module": "tslib.es6.js",
+    "jsnext:main": "tslib.es6.js",
+    "typings": "tslib.d.ts",
+    "sideEffects": false,
+    "exports": {
+      ".": {
+        "module": {
+          "types": "./modules/index.d.ts",
+          "default": "./tslib.es6.mjs"
+        },
+        "import": {
+          "node": "./modules/index.js",
+          "default": {
+            "types": "./modules/index.d.ts",
+            "default": "./tslib.es6.mjs"
+          }
+        },
+        "default": "./tslib.js"
+      },
+      "./*": "./*",
+      "./": "./"
+    }
+  }
+}

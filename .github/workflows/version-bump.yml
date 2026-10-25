@@ -19,6 +19,15 @@ name: Version bump
 # therefore checks out only the PR head branch, and only ever reads and edits it as text (git, jq, and the
 # release-cli action's own text edits to package.json/package-lock.json) -- never npm install, never any code from
 # it. Fork PRs are skipped, since the bot cannot push to them anyway.
+#
+# The lockfile repair (repair-lockfile action) follows the same rule, which is what keeps it safe under
+# `pull_request_target` (https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/ describes the
+# "pwn request" this avoids: running a PR's code in a job that has secrets). The script that runs is this repo's, at the
+# commit of this workflow file, from the action's own checkout. The PR's package-lock.json is only parsed as JSON; no
+# npm, no lifecycle script and no file of the PR is ever executed. The one network access is a download of a tarball
+# from https://registry.npmjs.org/ whose sha512 must match the lockfile before a byte of it is parsed, and the tarball
+# is read in memory, never extracted. The token is never given to the script, and the job needs no permission beyond
+# the contents: write it already has.
 on:
   workflow_call:
     secrets:
@@ -45,7 +54,7 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           # The only write this job ever makes is a commit pushed straight to the PR branch; nothing here calls the
           # Issues/PR/Checks APIs, so contents is the only permission the token needs, regardless of what else the
@@ -65,7 +74,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Untrusted content: only ever read and edited as data (by git, jq and the release-cli action below), never
+      # Untrusted content: only ever read and edited as data (by git, jq, the release-cli action and the repair-lockfile action below), never
       # executed. No setup-node/npm-ci runs against this checkout, on purpose: the PR branch's own install/postinstall
       # scripts must never run in a job that holds the App token.
       - if: steps.actor.outputs.skip != 'true'
@@ -74,9 +83,45 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ steps.app.outputs.token }}
-          # The "Commit and push the version" step below pushes with a plain `git push`, relying on the app token
+          # The "Push" step below pushes with a plain `git push`, relying on the app token
           # this checkout persists; without it that push would have no credential to use.
           persist-credentials: true
+
+      # Both commits below are made as the app's bot user.
+      - name: Set the commit author
+        if: steps.actor.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          bot_id=$(gh api "/users/${SLUG}[bot]" --jq .id)
+          git config user.name "${SLUG}[bot]"
+          git config user.email "$bot_id+${SLUG}[bot]@users.noreply.github.com"
+
+      # npm on Windows drops the entries of bundled dependencies from package-lock.json (see check-lockfile), which then
+      # breaks `npm ci` on Linux; this adds them back from the registry, as data (see the SECURITY note at the top). It
+      # runs for every same-repo PR, including Dependabot's, which is where a dependency bump that re-resolves a bundler
+      # such as Tailwind arrives. A failed repair is only a warning here: the lockfile is untouched and the caller's
+      # check-lockfile step fails the PR.
+      - name: Repair the lockfile
+        if: steps.actor.outputs.skip != 'true'
+        uses: $/actions/repair-lockfile # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
+
+      # Committed here, but pushed together with the version commit below, so the bot makes one push (one set of
+      # checks re-running) when both are needed.
+      - name: Commit the lockfile repair
+        id: repair-commit
+        if: steps.actor.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package-lock.json; then
+            echo "The lockfile needed no repair."
+          else
+            git add package-lock.json
+            git commit -m "chore: repair package-lock.json for Linux"
+            echo "committed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # The title is captured through the environment, never interpolated directly into a run: script or into
       # release-cli's `args:`, because GitHub substitutes ${{ }} into text before anything runs: an attacker-controlled
@@ -157,21 +202,22 @@ jobs:
           args: |
             ${{ steps.compare.outputs.value }}
 
-      - name: Commit and push the version
+      - name: Commit the version
+        id: version-commit
         if: steps.actor.outputs.skip != 'true' && steps.compare.outputs.needed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          SLUG: ${{ steps.app.outputs.app-slug }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           EXPECTED: ${{ steps.compare.outputs.value }}
         run: |
           set -euo pipefail
-          bot_id=$(gh api "/users/${SLUG}[bot]" --jq .id)
-          git config user.name "${SLUG}[bot]"
-          git config user.email "$bot_id+${SLUG}[bot]@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "chore: set version to $EXPECTED"
-          git push origin "HEAD:refs/heads/$HEAD_REF"
+
+      # One push for whatever was committed above. A plain `git push` uses the app token the checkout persisted.
+      - name: Push
+        if: steps.actor.outputs.skip != 'true' && (steps.repair-commit.outputs.committed == 'true' || steps.version-commit.outcome == 'success')
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: git push origin "HEAD:refs/heads/$HEAD_REF"
 
   # main moved (a PR merged and possibly released): bring every open PR branch up to date and re-derive its version,
   # because a PR's expected version depends on main's current version. Without this the "branch must be up to date"
@@ -184,7 +230,7 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           # This job pushes commits (contents), lists each PR branch's open pull request (pull-requests, read is
           # enough: nothing here updates a PR itself), and posts a conflict-notice comment through the issues

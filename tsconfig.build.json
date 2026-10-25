@@ -4,8 +4,9 @@
   // inside this repo (composite actions, npm scripts, vitest), but Node refuses to strip types from .ts files under
   // node_modules, which is where npx installs this package, so the bin has to be plain JavaScript.
   "include": ["scripts/**/*"],
-  // Specs and the pack check are repo-internal; none of them belongs in the published package.
-  "exclude": ["node_modules", "scripts/**/*.test.ts", "scripts/verifyPackedCli.ts"],
+  // Specs, their support code and fixtures, and the verify scripts are repo-internal; none of them belongs in the
+  // published package.
+  "exclude": ["node_modules", "scripts/**/*.test.ts", "scripts/testSupport", "scripts/fixtures", "scripts/verifyPackedCli.ts", "scripts/verifyRealRepair.ts"],
   "compilerOptions": {
     "noEmit": false,
     "outDir": "dist",
