@@ -13,6 +13,7 @@ Composite actions (`actions/*/action.yml`):
 |---|---|
 | `setup` | Checks out the caller's repository, sets up Node from `.nvmrc`, checks the lockfile, runs `npm ci`. |
 | `check-lockfile` | Fails if the lockfile is missing bundled dependency entries that npm on Windows drops. Standalone: brings its own Node setup. |
+| `check-pins` | Fails if a `uses:` reference to `tpetrus/ci-workflows` is not an exact `vX.Y.Z` release tag (see [Scanner configuration in the caller](#scanner-configuration-in-the-caller)). Standalone: brings its own Node setup. |
 | `repair-lockfile` | Adds back the bundled-dependency entries that `check-lockfile` reports missing, without running npm. Exit code 1 (could not repair) is a warning, not a failure. |
 | `release-cli` | Runs one `scripts/release/cli.ts` subcommand from this repo against the caller's checkout. |
 
@@ -24,7 +25,7 @@ Reusable workflows (`.github/workflows/*.yml`):
 | `pr-checks.yml` | Two PR checks: `pr-title` (the title is a Conventional Commit) and `version` (`package.json`/`package-lock.json` carry the version that title calls for). |
 | `version-bump.yml` | The version bot: sets a PR branch's version to match its title, and keeps every open PR in sync when `main` moves. On a PR it also repairs a lockfile that lost bundled-dependency entries (see [Lockfile repair](#lockfile-repair)). Authenticates as a GitHub App. |
 | `release.yml` | Tags and publishes a GitHub Release whenever `main` carries a version with no tag yet. |
-| `security.yml` | `npm audit` (production dependencies block, dev dependencies are informational), GitHub's dependency review on PRs, and a `zizmor` scan of the caller's own workflows. |
+| `security.yml` | `npm audit` (production dependencies block, dev dependencies are informational), GitHub's dependency review on PRs, a `zizmor` scan of the caller's own workflows, and `pins` (every `tpetrus/ci-workflows` ref must be an exact release tag). |
 | `codeql.yml` | CodeQL static analysis of JavaScript/TypeScript and of the workflow files themselves. |
 | `smoke.yml` | Runs the caller's `@smoke` Playwright tests against a live URL. Never deploys; only reports. |
 | `update-snapshots.yml` | Regenerates Playwright visual-regression baselines and commits them back to the given ref. |
@@ -220,6 +221,16 @@ rules:
         "tpetrus/*": ref-pin
         "*": hash-pin
 ```
+
+That policy accepts any ref, so on its own it would let `@v1`, `@main` or a SHA through (Dependabot once rewrote
+caller refs from an exact tag to the legacy `@v1`, and nothing failed). The shared `security.yml` therefore also runs a
+`pins` job (the `check-pins` action, shown as `security / pins`) that fails any `uses:` of `tpetrus/ci-workflows`
+(workflow, action or bare repo; owner and repository compared case-insensitively) whose ref is not exactly `vX.Y.Z`,
+and also one with no ref at all. It reads `uses:` lines as text, so it needs no YAML parser. A line that carries
+zizmor's own `# zizmor: ignore[unpinned-uses]` marker is skipped and listed as skipped in the output: that is the one
+place to justify a deliberately unpinned ref, which this repo's `self-*.yml` wrappers do with `@main`. A caller gets
+the check only after it re-pins to a release that contains it. Run it by hand with
+`node scripts/check-pins.ts [path ...]` (defaults to `.github`; a path that does not exist exits 2).
 
 The shared `security.yml` zizmor job runs `zizmor .github/` in the caller's checkout, so the caller's
 `.github/zizmor.yml` is discovered automatically.

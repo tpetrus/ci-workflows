@@ -63,3 +63,16 @@ jobs:
       # (see the README's zizmor note) after reading the release notes.
       - name: Scan workflows with zizmor
         run: pipx run zizmor==1.30.1 .github/
+
+  # zizmor's ref-pin policy for tpetrus/* (the caller's .github/zizmor.yml) accepts ANY ref, so `@v1` or `@main` passes
+  # it. This fails every reference to tpetrus/ci-workflows that is not an exact vX.Y.Z release tag. A line carrying
+  # zizmor's own `# zizmor: ignore[unpinned-uses]` marker is skipped (see the README, Security posture).
+  pins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/actions/check-pins # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
