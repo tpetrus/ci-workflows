@@ -5,10 +5,19 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-interface LockPackage {
+export interface LockPackage {
     bundleDependencies?: string[] | boolean;
     bundledDependencies?: string[] | boolean;
     dependencies?: Record<string, string>;
+    resolved?: string;
+    integrity?: string;
+    inBundle?: boolean;
+    // The flags npm computes from how a package is reached; a bundled child inherits them from its bundler.
+    dev?: boolean;
+    optional?: boolean;
+    peer?: boolean;
+    devOptional?: boolean;
+    [field: string]: unknown;
 }
 
 export interface Lockfile {
@@ -21,22 +30,26 @@ export interface CheckLockfileResult {
     stderr: string;
 }
 
-// Returns the `node_modules/<name>` child paths that a bundled dependency declares but that have no entry of their
-// own in `packages`. Empty means the lockfile is complete.
-export function findMissingBundledEntries(lock: Lockfile): string[] {
+// Maps each bundler (an entry with bundleDependencies) to the `node_modules/<name>` child paths it declares but that
+// have no entry of their own in `packages`. Bundlers whose children are all present are left out, so an empty map
+// means the lockfile is complete. The repair tool uses the same map to know which tarballs it needs to read.
+export function findBundlersWithMissingEntries(lock: Lockfile): Map<string, string[]> {
     const packages = lock.packages ?? {};
-    const missing: string[] = [];
+    const bundlers = new Map<string, string[]>();
     for (const [path, pkg] of Object.entries(packages)) {
         if (path === '') continue;
         const declared = pkg.bundleDependencies ?? pkg.bundledDependencies;
         // `true` means "bundle every dependency"; an array names them.
         const names = Array.isArray(declared) ? declared : declared ? Object.keys(pkg.dependencies ?? {}) : [];
-        for (const name of names) {
-            const childPath = `${path}/node_modules/${name}`;
-            if (!(childPath in packages)) missing.push(childPath);
-        }
+        const missing = names.map((name) => `${path}/node_modules/${name}`).filter((childPath) => !(childPath in packages));
+        if (missing.length > 0) bundlers.set(path, missing);
     }
-    return missing;
+    return bundlers;
+}
+
+// Returns every missing bundled child path, flattened across bundlers. Empty means the lockfile is complete.
+export function findMissingBundledEntries(lock: Lockfile): string[] {
+    return [...findBundlersWithMissingEntries(lock).values()].flat();
 }
 
 // Reads the lockfile at `argv[0]` (defaulting to package-lock.json) and reports any missing bundled entries. Returns
@@ -51,10 +64,11 @@ export function checkLockfile(argv: readonly string[]): CheckLockfileResult {
             ...missing.map((entry) => `  - ${entry}`),
             '',
             `npm on Windows drops these entries, and 'npm ci' on Linux CI then fails with "Missing: ... from lock file".`,
-            'Fix: restore the lockfile from main and redo your change on top of it:',
-            '    git checkout origin/main -- package-lock.json',
-            '    npm install <your change>',
-            `then run 'npm run check-lockfile' again. Alternatively, run the install on Linux or WSL.`,
+            'Fix: add the missing entries from the registry tarballs of the packages that bundle them (data only, no install):',
+            '    npx --yes --package=github:tpetrus/ci-workflows#vX.Y.Z ci-tools repair-lockfile',
+            '(vX.Y.Z is the ci-workflows tag your .github/workflows/ pins.) For same-repo pull requests the version bot does',
+            'this automatically and pushes a "chore: repair package-lock.json for Linux" commit. Alternatively, restore the',
+            'lockfile from main and redo your change on top of it, or run the install on Linux or WSL.',
         ];
         return { code: 1, stdout: '', stderr: `${lines.join('\n')}\n` };
     }

@@ -59,7 +59,8 @@ try {
     // A lockfile that lost a bundled dependency's entry (the exact thing check-lockfile exists to catch), and a
     // complete one.
     const brokenLock = join(project, 'broken-lock.json');
-    writeFileSync(brokenLock, JSON.stringify({ packages: { '': {}, 'node_modules/pkg': { bundleDependencies: ['dep'] } } }));
+    // Indented like npm writes it: repair-lockfile refuses to rewrite a file whose formatting it would change.
+    writeFileSync(brokenLock, JSON.stringify({ packages: { '': {}, 'node_modules/pkg': { bundleDependencies: ['dep'] } } }, null, 2));
     const goodLock = join(project, 'good-lock.json');
     writeFileSync(
         goodLock,
@@ -72,6 +73,10 @@ try {
     expectExit('unknown sub-tool exits 2', ciTools('nope'), 2, 'Usage: ci-tools');
     expectExit('check-lockfile passes a complete lockfile', ciTools('check-lockfile', goodLock), 0, 'all bundled dependency entries are present');
     expectExit('check-lockfile fails an incomplete lockfile', ciTools('check-lockfile', brokenLock), 1, 'node_modules/pkg/node_modules/dep');
+    // repair-lockfile must load from the installed package too (the repair path is the one that touches the network, so
+    // only the offline outcomes are exercised here: a complete lockfile, and a bundler it refuses to fetch).
+    expectExit('repair-lockfile has nothing to do for a complete lockfile', ciTools('repair-lockfile', goodLock), 0, 'nothing to repair');
+    expectExit('repair-lockfile refuses to fetch a bundler that is not from the npm registry', ciTools('repair-lockfile', brokenLock), 1, 'never fetched');
     expectExit('release with no command prints the release usage', ciTools('release'), 0, 'Commands:');
 } finally {
     rmSync(workDir, { recursive: true, force: true });
