@@ -1,0 +1,29 @@
+name: Check pins
+description: Fails if a uses reference to tpetrus/ci-workflows is not an exact vX.Y.Z release tag.
+
+inputs:
+  paths:
+    description: Space-separated files or directories to scan (directories are scanned recursively for .yml and .yaml).
+    required: false
+    default: .github
+
+runs:
+  using: composite
+  steps:
+    # Needed even though a caller may have already set up Node elsewhere: check-pins.ts is run directly as a .ts
+    # file (no build step), which requires Node 24's built-in type stripping, and this action must work standalone.
+    # No checkout of its own: the caller's job checks out the repository whose workflows are scanned.
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: 24
+
+    # check-pins.ts lives at this action's own repo root (scripts/check-pins.ts), not in the caller's checkout, so it
+    # must be run from the action's own path. Use the $GITHUB_ACTION_PATH shell variable, not the
+    # ${{ github.action_path }} expression: the expression is substituted as literal text before the runner starts the
+    # step, so in a job with `container:` it still contains the host-side path (see
+    # https://github.com/actions/runner/issues/2185). This action lives at actions/check-pins/, so ../.. reaches that
+    # repo root. $PATHS is deliberately unquoted so each space-separated path becomes its own argument.
+    - run: node "$GITHUB_ACTION_PATH/../../scripts/check-pins.ts" $PATHS
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
