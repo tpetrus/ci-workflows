@@ -1,0 +1,45 @@
+name: Repair lockfile
+description: Adds the bundled-dependency entries that npm on Windows drops from a lockfile, without running npm.
+
+inputs:
+  lockfile-path:
+    description: Path to the lockfile to repair, relative to the working directory of the step.
+    required: false
+    default: package-lock.json
+
+runs:
+  using: composite
+  steps:
+    # No `npm ci` here, unlike release-cli: scripts/repair-lockfile.ts, scripts/check-lockfile.ts and scripts/tarball.ts
+    # import only Node built-ins. Node itself is the runner's (the same one release-cli runs on); a caller that needs a
+    # specific version sets it up before this step. The script runs from this action's own checkout (see check-lockfile
+    # for why $GITHUB_ACTION_PATH rather than the ${{ github.action_path }} expression), so it is this repo's code at
+    # the pinned ref, never anything from the lockfile's project.
+    #
+    # The lockfile is untrusted data in a version-bot run, and so is some of what the script prints back (package names
+    # and URLs from it). `::stop-commands::` makes the runner ignore any `::workflow-command::` in that output until
+    # the random token is echoed again, so it can only ever be log text. The warning below is built from the same text
+    # with `%`, CR and LF percent-escaped, which is all that is needed to keep it one annotation.
+    #
+    # A failed repair is a warning, not a failed step: the lockfile is left untouched and check-lockfile (in the
+    # caller's CI) is what blocks the PR, so the caller's other steps, such as writing the version, must still run.
+    - run: |
+        stop_token="stop_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        output_file="$RUNNER_TEMP/repair-lockfile-output.txt"
+        echo "::stop-commands::$stop_token"
+        set +e
+        node "$GITHUB_ACTION_PATH/../../scripts/repair-lockfile.ts" "$LOCKFILE_PATH" >"$output_file" 2>&1
+        exit_code=$?
+        set -e
+        cat "$output_file"
+        echo "::$stop_token::"
+        if [ "$exit_code" -ne 0 ]; then
+          message=$(cat "$output_file")
+          message="${message//'%'/%25}"
+          message="${message//$'\r'/%0D}"
+          message="${message//$'\n'/%0A}"
+          echo "::warning title=Lockfile was not repaired::$message"
+        fi
+      shell: bash
+      env:
+        LOCKFILE_PATH: ${{ inputs['lockfile-path'] }}

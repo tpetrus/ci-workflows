@@ -2,7 +2,7 @@
 
 A shared, reusable CI/CD pipeline for my own projects — mostly Cloudflare Workers apps (static SPAs and similar)
 built with TypeScript, Vitest, Playwright, Lighthouse CI and size-limit. It is composite GitHub Actions, reusable
-GitHub Actions workflows, and a small Node CLI, `ci-tools` (release automation and a lockfile check). A caller gets all of
+GitHub Actions workflows, and a small Node CLI, `ci-tools` (release automation, a lockfile check and a lockfile repair). A caller gets all of
 it by referencing a handful of thin workflow files; the logic itself lives here, in one place.
 
 ## What's in here
@@ -13,6 +13,7 @@ Composite actions (`actions/*/action.yml`):
 |---|---|
 | `setup` | Checks out the caller's repository, sets up Node from `.nvmrc`, checks the lockfile, runs `npm ci`. |
 | `check-lockfile` | Fails if the lockfile is missing bundled dependency entries that npm on Windows drops. Standalone: brings its own Node setup. |
+| `repair-lockfile` | Adds back the bundled-dependency entries that `check-lockfile` reports missing, without running npm. Exit code 1 (could not repair) is a warning, not a failure. |
 | `release-cli` | Runs one `scripts/release/cli.ts` subcommand from this repo against the caller's checkout. |
 
 Reusable workflows (`.github/workflows/*.yml`):
@@ -21,7 +22,7 @@ Reusable workflows (`.github/workflows/*.yml`):
 |---|---|
 | `node-ci.yml` | Builds once, then runs quality (format/lint/typecheck/coverage), a max-file-size check, and optional bundle-size, Lighthouse, Playwright e2e (auto-sharded) and broken-link jobs. One aggregator job (`result`) is the single required check. |
 | `pr-checks.yml` | Two PR checks: `pr-title` (the title is a Conventional Commit) and `version` (`package.json`/`package-lock.json` carry the version that title calls for). |
-| `version-bump.yml` | The version bot: sets a PR branch's version to match its title, and keeps every open PR in sync when `main` moves. Authenticates as a GitHub App. |
+| `version-bump.yml` | The version bot: sets a PR branch's version to match its title, and keeps every open PR in sync when `main` moves. On a PR it also repairs a lockfile that lost bundled-dependency entries (see [Lockfile repair](#lockfile-repair)). Authenticates as a GitHub App. |
 | `release.yml` | Tags and publishes a GitHub Release whenever `main` carries a version with no tag yet. |
 | `security.yml` | `npm audit` (production dependencies block, dev dependencies are informational), GitHub's dependency review on PRs, and a `zizmor` scan of the caller's own workflows. |
 | `codeql.yml` | CodeQL static analysis of JavaScript/TypeScript and of the workflow files themselves. |
@@ -50,6 +51,34 @@ The TypeScript sources in `scripts/` are run in two different ways:
 A `package.json` script that runs the CLI through npx carries its own `#vX.Y.Z` ref. Dependabot does not update that
 ref: it only sees `uses:` lines, not npx specs inside a script. Until the CLI is published to a registry, bump it by
 hand in the same change that bumps the `uses:` refs to the same release.
+
+### Lockfile repair
+
+`check-lockfile` reports, and `repair-lockfile` fixes, a `package-lock.json` that lost the entries of bundled
+dependencies. The cause is in npm: it learns what a package bundles only by unpacking the package's tarball, and a
+bundler that is inert on the current platform (for example `@tailwindcss/oxide-wasm32-wasi`, `cpu: ["wasm32"]`) is never
+unpacked, so a plain `npm install` on Windows or macOS writes no entries for its bundled children and `npm ci` on Linux
+fails with "Missing: ... from lock file" (npm/cli#9321, tailwindlabs/tailwindcss#20324). There is no `.npmrc` setting
+that avoids it, and `npm install --package-lock-only` fixes it only on some npm versions and rewrites unrelated entries.
+
+```
+npx --yes --package=github:tpetrus/ci-workflows#vX.Y.Z ci-tools repair-lockfile [path/to/package-lock.json]
+```
+
+It downloads each affected bundler's tarball from `https://registry.npmjs.org/` (the `resolved` URL must be exactly
+that origin, with no redirects), refuses it unless its sha512 matches the lockfile's `integrity`, reads the bundled
+`package.json` files in memory (nothing is extracted or executed) and inserts the missing entries the way npm writes them,
+with the same key order and the file's own indentation and line endings. Existing entries are never changed. If anything
+cannot be repaired it writes nothing and exits 1; exit 0 means repaired or nothing to do.
+
+**The version bot does this for you.** On every same-repo PR (Dependabot's included, which is where a Tailwind bump
+arrives) `version-bump.yml` runs the `repair-lockfile` action against the PR's lockfile and, if it changed, commits only
+that file as `chore: repair package-lock.json for Linux`, in the same push as the version commit when both are needed.
+If the repair fails it logs a warning and carries on; `check-lockfile` in CI still fails the PR. This is safe under
+`pull_request_target` (see GitHub Security Lab's
+[preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)) because the
+script is this repo's, at the workflow's own commit, and the PR's lockfile is only parsed as JSON: no npm, no lifecycle
+script, no file from the PR is executed, and the token is not passed to it.
 
 ## The caller contract
 
@@ -212,7 +241,8 @@ A caller that wants the automated-semver-from-PR-title system (`version-bump.yml
    `sync-prs` requests all three for its token, and GitHub rejects a token request for a permission the installation
    lacks: `The permissions requested are not granted to this installation.` Add Issues to the App, then accept the
    updated permissions on each installation.
-2. Add `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` as secrets in both Settings → Secrets → Actions and
+2. Add `RELEASE_APP_ID` (the App's numeric ID; the workflow passes it to `create-github-app-token`'s `client-id` input, which
+   hands the value to the same `appId` option the deprecated `app-id` input used) and `RELEASE_APP_PRIVATE_KEY` as secrets in both Settings → Secrets → Actions and
    Settings → Secrets → Dependabot (Dependabot-triggered runs only read the latter).
 3. Require the `pr-title` and `version` checks (from `pr-checks.yml`), plus `node-ci.yml`'s `result` aggregator job,
    in the repo's branch ruleset.
