@@ -54,7 +54,7 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           # The only write this job ever makes is a commit pushed straight to the PR branch; nothing here calls the
           # Issues/PR/Checks APIs, so contents is the only permission the token needs, regardless of what else the
@@ -230,7 +230,7 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           # This job pushes commits (contents), lists each PR branch's open pull request (pull-requests, read is
           # enough: nothing here updates a PR itself), and posts a conflict-notice comment through the issues
