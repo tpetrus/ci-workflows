@@ -241,7 +241,7 @@ jobs:
             esac
             # The spec's directory, then one `*-snapshots` directory (its name has no slash), then the file.
             rest=${relative#"$spec_dir"/}
-            if [ "$rest" = "$relative" ] || [ "${rest%%/*}" = "$rest" ] || [ "${rest%%/*}" = "${rest%%/*-snapshots}" ]; then
+            if [ "$rest" = "$relative" ] || [ "${rest%%/*}" = "$rest" ] || [[ "${rest%%/*}" != *-snapshots ]]; then
               fail "File outside '$spec_dir/*-snapshots/' in the snapshot artifact: $relative"
             fi
           done < <(find . -type f -print0)
