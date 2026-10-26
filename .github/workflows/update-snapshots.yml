@@ -4,8 +4,31 @@ name: Update visual snapshots
 # checked out on. Trigger-agnostic: the caller's own wrapper workflow owns workflow_dispatch (or any other trigger)
 # and picks the branch; this workflow always just runs against the ref it is given once invoked.
 #
-# The caller must also grant `permissions: contents: write` at its own top level, since the job below pushes a
-# commit.
+# TWO JOBS, ON PURPOSE. `update` builds the branch and runs Playwright in the Playwright container, so it executes the
+# branch's code (npm scripts, dependencies' install scripts, the app, the spec). It therefore holds no secret and only
+# `contents: read`, and hands the regenerated images to the next job as an artifact. `commit` holds the credential
+# that pushes, and it never executes anything from the repo: no setup-node, no npm, only git and shell over data it
+# validates first (only .png files, only below the spec's own `*-snapshots/` directories, no symlinks, no path
+# traversal). Running a branch's code in a job that holds a write credential is the "pwn request" pattern
+# (https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/), the same reason
+# version-bump.yml never runs npm against a PR checkout.
+#
+# WHY A GITHUB APP TOKEN. Pushes made with the default GITHUB_TOKEN deliberately start no workflows, so on the caller's
+# PR the new head commit would have no `ci / result` and the required check would stay pending until someone pushed
+# another commit. `commit` pushes as the same GitHub App version-bump.yml uses (create-github-app-token), whose pushes
+# do start workflows. If the caller passes no App secrets, `commit` falls back to GITHUB_TOKEN (the previous
+# behavior) and emits a warning that CI will not re-run on the commit.
+#
+# The caller's wrapper therefore needs, on its calling job or workflow:
+#   permissions:
+#     contents: write        # only used by the GITHUB_TOKEN fallback; a reusable workflow cannot be granted more
+#                            # than its caller grants
+#   secrets:                 # on the job that has `uses:`
+#     RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+#     RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+#
+# The push never forces. It targets the branch the run was dispatched on, from the commit that run built; if the branch
+# moved in the meantime the push is rejected and the job fails with a message to run it again.
 on:
   workflow_call:
     inputs:
@@ -16,10 +39,17 @@ on:
         description: Which Playwright spec to regenerate snapshots for.
         type: string
         default: e2e/visual.spec.ts
+    secrets:
+      # Optional so existing callers keep working; without them the commit is pushed with GITHUB_TOKEN and CI does
+      # not re-run on it (see the header).
+      RELEASE_APP_ID:
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
 
 # No concurrency group here: the caller's own wrapper workflow decides concurrency.
 
-# {} at the workflow level: both jobs below already declare their own narrower permissions, so nothing here would
+# {} at the workflow level: every job below already declares its own narrower permissions, so nothing here would
 # ever actually use a broader workflow-level default.
 permissions: {}
 
@@ -45,9 +75,11 @@ jobs:
     needs: detect-playwright-version
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Runs the branch's code, so it gets no secrets and no write access; the `commit` job below pushes.
     permissions:
-      # This job commits and pushes the regenerated snapshots; see the "Commit updated snapshots" step below.
-      contents: write
+      contents: read
+    outputs:
+      has-snapshots: ${{ steps.stage.outputs.has-snapshots }}
     # Must be the same image the caller's e2e job uses, and its tag must match the installed @playwright/test
     # version, so the baselines are rendered by the same browser build and fonts that later compare against them.
     container:
@@ -57,10 +89,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v${{ needs.detect-playwright-version.outputs.version }}-noble # zizmor: ignore[unpinned-images] see comment above
       options: --ipc=host
     steps:
-      # The commit-and-push step below needs the credential this leaves behind; see persist-credentials there.
+      # No credential is left on disk (the setup action's default), so nothing in this job can push.
       - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
-        with:
-          persist-credentials: true
 
       # Building only: deployment happens through the calling repo's own hosting, never from CI.
       - name: Build
@@ -82,22 +112,32 @@ jobs:
         env:
           SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
 
-      # Commits only the snapshot directories next to the spec file, so nothing else the run produced can end up in
-      # the branch.
-      - name: Commit updated snapshots
+      # Copies only the snapshot directories next to the spec file into one folder, keeping their paths, so nothing
+      # else the run produced can reach the commit job. The folder name has no leading dot because upload-artifact
+      # skips hidden paths.
+      - name: Stage the snapshots
+        id: stage
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all -- "$(dirname "$SNAPSHOT_TEST_FILE")"/*-snapshots/*
-          if git diff --cached --quiet; then
-            echo "Snapshots are already up to date."
-          else
-            git commit -m "Update visual snapshots"
-            git push
-          fi
+          set -euo pipefail
+          spec_dir=$(dirname "$SNAPSHOT_TEST_FILE")
+          found=false
+          for dir in "$spec_dir"/*-snapshots; do
+            [ -d "$dir" ] || continue
+            mkdir -p "snapshot-stage/$dir"
+            cp -R "$dir/." "snapshot-stage/$dir/"
+            found=true
+          done
+          echo "has-snapshots=$found" >> "$GITHUB_OUTPUT"
         env:
           SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.stage.outputs.has-snapshots == 'true'
+        with:
+          name: update-snapshots-files
+          path: snapshot-stage/
+          if-no-files-found: error
+          retention-days: 1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -108,3 +148,162 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  # Never executes the repo's code (see the header). It holds the push credential, so everything it reads from the
+  # artifact is treated as untrusted data and validated before it is copied anywhere.
+  commit:
+    needs: update
+    if: needs.update.outputs.has-snapshots == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Only the GITHUB_TOKEN fallback pushes with this; with the App token the push uses the App's own permission.
+      # Permissions are fixed per job and cannot depend on which credential is used, so the job declares the
+      # fallback's need.
+      contents: write
+    steps:
+      # Secrets cannot be tested in an `if:`, so their presence is turned into a plain string first. Only the boolean
+      # result reaches the environment, never a secret value.
+      - name: Check for the GitHub App secrets
+        id: credentials
+        env:
+          HAS_APP_ID: ${{ secrets.RELEASE_APP_ID != '' }}
+          HAS_APP_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_APP_ID" = "true" ] && [ "$HAS_APP_KEY" = "true" ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY were not passed to update-snapshots.yml, so the snapshot commit is pushed with GITHUB_TOKEN and GitHub will not run CI on it: the PR's required checks stay pending until another commit is pushed. Fix: pass both secrets from the calling workflow's job (see the header of update-snapshots.yml in tpetrus/ci-workflows)."
+          fi
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        if: steps.credentials.outputs.app == 'true'
+        with:
+          client-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # The only write is one commit pushed to the branch; nothing here calls the Issues/PR/Checks APIs.
+          permission-contents: write
+
+      # The commit the run was started on, which is the commit the `update` job built, so the images match the code
+      # they were rendered from. Not the branch tip: if the branch has moved, the push below is rejected instead of
+      # silently committing images made from older code on top of newer commits.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ steps.app.outputs.token || github.token }}
+          # The push step below uses a plain `git push`, relying on the credential this checkout persists. Nothing
+          # in this job runs the repo's code or uploads the workspace, so the credential is not exposed to either.
+          persist-credentials: true
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: update-snapshots-files
+          path: ${{ runner.temp }}/snapshot-stage
+
+      # The artifact is data from a job that ran the branch's code, so it is checked before anything is copied: every
+      # entry must be a plain directory or a regular .png file, and every file must sit below a `*-snapshots`
+      # directory directly inside the spec's own directory. Symlinks (and so any link out of the tree) and every other
+      # file type are refused. The spec's directory in the checkout must itself contain no symlink, so the copy cannot
+      # be redirected out of the workspace.
+      - name: Validate the snapshot files
+        env:
+          SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
+          STAGE: ${{ runner.temp }}/snapshot-stage
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1" >&2; exit 1; }
+
+          spec_dir=$(dirname "$SNAPSHOT_TEST_FILE")
+          case "/$spec_dir/" in
+            */../* | //*) fail "snapshot-test-file '$SNAPSHOT_TEST_FILE' must be a relative path without '..'" ;;
+          esac
+          # realpath -m follows symlinks and --no-symlinks does not, so the two differ exactly when a component of the
+          # path is a symlink.
+          [ "$(realpath -m -- "$spec_dir")" = "$(realpath -m --no-symlinks -- "$spec_dir")" ] ||
+            fail "'$spec_dir' contains a symlink in the checkout."
+
+          cd "$STAGE"
+          if [ -n "$(find . -mindepth 1 ! -type f ! -type d -print -quit)" ]; then
+            fail "The snapshot artifact contains something other than regular files and directories (a symlink?)."
+          fi
+          count=0
+          while IFS= read -r -d '' file; do
+            count=$((count + 1))
+            relative=${file#./}
+            case "$relative" in
+              *.png) ;;
+              *) fail "Unexpected file in the snapshot artifact (only .png is allowed): $relative" ;;
+            esac
+            case "/$relative/" in
+              */../*) fail "Path traversal in the snapshot artifact: $relative" ;;
+            esac
+            # The spec's directory, then one `*-snapshots` directory (its name has no slash), then the file.
+            rest=${relative#"$spec_dir"/}
+            if [ "$rest" = "$relative" ] || [ "${rest%%/*}" = "$rest" ] || [ "${rest%%/*}" = "${rest%%/*-snapshots}" ]; then
+              fail "File outside '$spec_dir/*-snapshots/' in the snapshot artifact: $relative"
+            fi
+          done < <(find . -type f -print0)
+          [ "$count" -gt 0 ] || fail "The snapshot artifact holds no files."
+          echo "Validated $count snapshot file(s)."
+
+      # Each snapshots directory is replaced as a whole, so a baseline Playwright no longer writes is removed from the
+      # branch too, the same as `git add --all` did when this ran in one job.
+      - name: Copy the snapshots into place
+        env:
+          SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
+          STAGE: ${{ runner.temp }}/snapshot-stage
+        run: |
+          set -euo pipefail
+          spec_dir=$(dirname "$SNAPSHOT_TEST_FILE")
+          for source in "$STAGE/$spec_dir"/*-snapshots; do
+            [ -d "$source" ] || continue
+            target="$spec_dir/$(basename "$source")"
+            rm -rf -- "$target"
+            mkdir -p -- "$target"
+            cp -R --no-dereference "$source/." "$target/"
+          done
+
+      # The author is the App's bot user when the App token is in use, so the commit is attributed to it.
+      - name: Set the commit author
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SLUG" ]; then
+            bot_id=$(gh api "/users/${SLUG}[bot]" --jq .id)
+            git config user.name "${SLUG}[bot]"
+            git config user.email "$bot_id+${SLUG}[bot]@users.noreply.github.com"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          fi
+
+      # Stages only the snapshot directories next to the spec file, so nothing else can end up in the branch. The push
+      # never forces: if the branch moved since this run started it is rejected and the job fails, and running the
+      # workflow again regenerates the images from the new tip.
+      - name: Commit and push the snapshots
+        env:
+          SNAPSHOT_TEST_FILE: ${{ inputs.snapshot-test-file }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$REF" in
+            refs/heads/*) branch=${REF#refs/heads/} ;;
+            *)
+              echo "::error::This workflow can only push to a branch, but it was run on '$REF'." >&2
+              exit 1
+              ;;
+          esac
+          git add --all -- "$(dirname "$SNAPSHOT_TEST_FILE")"/*-snapshots/*
+          if git diff --cached --quiet; then
+            echo "Snapshots are already up to date."
+          else
+            git commit -m "Update visual snapshots"
+            if ! git push origin "HEAD:refs/heads/$branch"; then
+              echo "::error::Could not push to '$branch'. It most likely moved while the snapshots were being regenerated; the push is never forced. Run the workflow again on the new tip." >&2
+              exit 1
+            fi
+          fi

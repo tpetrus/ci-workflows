@@ -28,7 +28,7 @@ Reusable workflows (`.github/workflows/*.yml`):
 | `security.yml` | `npm audit` (production dependencies block, dev dependencies are informational), GitHub's dependency review on PRs, a `zizmor` scan of the caller's own workflows, and `pins` (every `tpetrus/ci-workflows` ref must be an exact release tag). |
 | `codeql.yml` | CodeQL static analysis of JavaScript/TypeScript and of the workflow files themselves. |
 | `smoke.yml` | Runs the caller's `@smoke` Playwright tests against a live URL. Never deploys; only reports. |
-| `update-snapshots.yml` | Regenerates Playwright visual-regression baselines and commits them back to the given ref. |
+| `update-snapshots.yml` | Regenerates Playwright visual-regression baselines and commits them back to the given ref, as the GitHub App so CI re-runs on the commit (see [Updating visual snapshots](#updating-visual-snapshots)). |
 
 ## The `ci-tools` CLI
 
@@ -257,6 +257,38 @@ A caller that wants the automated-semver-from-PR-title system (`version-bump.yml
    Settings → Secrets → Dependabot (Dependabot-triggered runs only read the latter).
 3. Require the `pr-title` and `version` checks (from `pr-checks.yml`), plus `node-ci.yml`'s `result` aggregator job,
    in the repo's branch ruleset.
+
+## Updating visual snapshots
+
+`update-snapshots.yml` regenerates the Playwright baselines in the Playwright container and commits them to the branch
+it was run on. It is two jobs so that no job both runs the branch's code and holds a write credential (GitHub Security
+Lab's [preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)):
+
+- `update` builds the branch and runs Playwright with `contents: read` and no secrets, then uploads only the
+  `<dir of snapshot-test-file>/*-snapshots/` directories as an artifact.
+- `commit` never runs the repo's code (no Node, no npm). It validates the artifact (only `.png` files, only below those
+  `*-snapshots/` directories, no symlinks, no path traversal), copies it into a checkout of the commit that was built,
+  commits "Update visual snapshots" and pushes to the branch the run was dispatched on. The push is never forced: if
+  the branch moved meanwhile, the job fails and the workflow should be run again.
+
+The commit is pushed as the GitHub App from [the one-time setup above](#one-time-setup-for-version-bumprelease)
+because pushes made with `GITHUB_TOKEN` start no workflows, which would leave the PR's required checks pending on the
+new head commit. The App needs only Contents: Read and write for this. The caller passes the same two secrets:
+
+```yaml
+jobs:
+  update-snapshots:
+    uses: tpetrus/ci-workflows/.github/workflows/update-snapshots.yml@vX.Y.Z
+    with:
+      build-dir: dist
+    secrets:
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+```
+
+The caller keeps `permissions: contents: write`. With the App secrets that permission is not used for the push; it only
+matters for the fallback. Both secrets are optional: if either is missing, the workflow pushes with `GITHUB_TOKEN` as
+before and prints a warning that CI will not re-run on the commit.
 
 ## Security posture
 
