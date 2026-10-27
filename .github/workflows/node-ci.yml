@@ -249,6 +249,12 @@ jobs:
       # reintroducing the manual-update problem this design exists to avoid.
       image: ${{ needs.e2e-plan.outputs.image || 'mcr.microsoft.com/playwright:v1.64.1-noble' }} # zizmor: ignore[unpinned-images] see comment above
       options: --ipc=host
+    # Inside a job `container:` GitHub runs `run:` steps with `sh`, not bash, and in the Playwright (Ubuntu) image `sh`
+    # is dash, which rejects `set -o pipefail`, `[[ ]]` and process substitution. Every step here, new ones included,
+    # runs with bash instead (a spec in scripts/workflowShell.test.ts enforces this for every container job).
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: $/actions/setup # self repository reference: resolves at the commit of this workflow file, so a pinned release runs its own actions (see README)
 
