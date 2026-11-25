@@ -232,11 +232,11 @@ jobs:
         with:
           client-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          # This job pushes commits (contents), lists each PR branch's open pull request (pull-requests, read is
-          # enough: nothing here updates a PR itself), and posts a conflict-notice comment through the issues
+          # This job pushes commits (contents), lists each PR branch's open pull request (pull-requests), and posts a
+          # conflict-notice comment through the issues
           # endpoint pull request comments share with plain issues (issues: write).
           permission-contents: write
-          permission-pull-requests: read
+          permission-pull-requests: write
           permission-issues: write
 
       # Full history and the app token, so branches can be merged and pushed. This is the caller's own main branch at
@@ -330,7 +330,8 @@ jobs:
                 existing=$(gh api --paginate "repos/$REPO/issues/$number/comments" --jq '.[].body' | grep -cF "$marker" || true)
                 if [ "${existing:-0}" -eq 0 ]; then
                   gh api "repos/$REPO/issues/$number/comments" -f body="$marker
-          The version bot could not merge \`main\` into this branch because of conflicts beyond the version lines. Please merge or rebase \`main\` yourself and resolve them; the bot will set the version afterwards." > /dev/null
+          The version bot could not merge \`main\` into this branch because of conflicts beyond the version lines. Please merge or rebase \`main\` yourself and resolve them; the bot will set the version afterwards." > /dev/null \
+                || echo "::warning::Could not comment on PR #$number; left for a human."
                 fi
                 echo "::endgroup::"
                 continue
