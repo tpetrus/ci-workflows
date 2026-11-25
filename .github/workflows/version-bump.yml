@@ -329,8 +329,9 @@ jobs:
                 # (before the comment is posted and before later PRs are synced), so a zero count must not fail.
                 existing=$(gh api --paginate "repos/$REPO/issues/$number/comments" --jq '.[].body' | grep -cF "$marker" || true)
                 if [ "${existing:-0}" -eq 0 ]; then
-                  gh api "repos/$REPO/issues/$number/comments" -f body="$marker || echo "::warning::Could not comment on PR #$number; left for a human."
-          The version bot could not merge \`main\` into this branch because of conflicts beyond the version lines. Please merge or rebase \`main\` yourself and resolve them; the bot will set the version afterwards." > /dev/null
+                  gh api "repos/$REPO/issues/$number/comments" -f body="$marker
+          The version bot could not merge \`main\` into this branch because of conflicts beyond the version lines. Please merge or rebase \`main\` yourself and resolve them; the bot will set the version afterwards." > /dev/null \
+                || echo "::warning::Could not comment on PR #$number; left for a human."
                 fi
                 echo "::endgroup::"
                 continue
